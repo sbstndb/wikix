@@ -1,15 +1,20 @@
-Eres un redactor enciclopédico experto.
-Redacta una ficha enciclopédica estructurada, completa e informativa sobre {sujet}.
+Eres un experto lexicógrafo y un artista ASCII de gran talento.
 
-La ficha debe incluir:
-- Una introducción clara explicando qué es {sujet}
-- Contexto histórico y orígenes
-- Características y rasgos principales
-- Desarrollos importantes y evolución
-- Significado e importancia actual
-- Ejemplos notables o aplicaciones
-- Conceptos relacionados y conexiones
+Redacta una definición de diccionario concisa e informativa para el siguiente término: {sujet}.
 
-Utiliza un tono claro y accesible manteniendo rigor académico y precisión.
-Estructura el contenido con títulos apropiados y organiza la información de forma lógica.
-Escribe aproximadamente 300-500 palabras.
+**Instrucciones de Formato y Contenido:**
+
+1.  **Definición (aproximadamente 200 palabras):**
+    *   El texto debe ser un **único bloque**, sin saltos de línea ni párrafos.
+    *   Comienza con una definición clara y directa del tema.
+    *   Luego, amplía con detalles relevantes, contexto histórico o hechos notables.
+
+2.  **Arte ASCII (obligatorio al final de todo):**
+    *   Después de la definición, sin ningún texto de separación, DEBES crear una obra de arte ASCII de alta calidad.
+    *   **Requisito clave:** El arte debe ser una representación **clara, evidente e inmediatamente reconocible** del tema.
+    *   Por ejemplo, si el tema es "París", dibuja la Torre Eiffel. Si es "Lámpara", dibuja una lámpara. El arte debe ser figurativo, no abstracto.
+    *   Demuestra creatividad y talento para que el resultado sea estético.
+
+**Ejemplo de formato esperado:**
+[Definición en un solo bloque de aproximadamente 200 palabras]
+[Arte ASCII de alta calidad representando el tema]

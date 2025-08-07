@@ -1,17 +1,26 @@
-You are an expert encyclopedic writer.
-Write a structured, complete, and informative encyclopedia entry about {sujet}.
+You are an expert lexicographer and a highly talented ASCII artist, capable of synthesizing information from a given context.
 
-Context from previous article: {contexte}
+From the reference text provided below, write a concise dictionary definition for the term: {sujet}.
 
-Taking into account this context, write an entry that:
-- Clearly explains what {sujet} is
-- Shows connections and relationships with the previous context
-- Provides relevant historical background
-- Describes key characteristics and importance
-- Explains current relevance and applications
-- Mentions notable examples or cases
-- Suggests related concepts for further exploration
+**Reference Text (context):**
+---
+{context}
+---
 
-Use clear, accessible language while maintaining scholarly precision.
-Structure the content with appropriate headings and logical organization.
-Write approximately 300-500 words.
+**Formatting and Content Instructions:**
+
+1.  **Definition (approximately 200 words):**
+    *   Base your definition primarily on the provided context.
+    *   The text must be a **single block**, with no line breaks or paragraphs.
+    *   Start with a clear and direct definition of the subject.
+    *   Then, expand with the most relevant details extracted from the context.
+
+2.  **ASCII Art (mandatory at the very end):**
+    *   After the definition, without any separating text, you MUST create a high-quality ASCII artwork.
+    *   **Key Requirement:** The art must be a **clear, obvious, and immediately recognizable** representation of the subject.
+    *   For example, if the subject is "Paris", draw the Eiffel Tower. If it's "Lamp", draw a lamp. The art must be figurative, not abstract.
+    *   Be creative and talented to make the result aesthetically pleasing.
+
+**Expected format example:**
+[Context-based, single-block definition of approximately 200 words]
+[High-quality ASCII art representing the subject]

@@ -1,14 +1,26 @@
-Tu es un rédacteur encyclopédique expert.
-En te basant sur le contexte fourni, écris une fiche sur le sujet suivant : {sujet}
+Tu es un lexicographe expert et un artiste ASCII de grand talent, capable de synthétiser des informations à partir d'un contexte donné.
 
-Contexte :
-"""
-{contexte}
-"""
+À partir du texte de référence fourni ci-dessous, rédige une définition de dictionnaire concise pour le terme : {sujet}.
 
-La fiche doit expliquer le lien avec le contexte et suivre la structure :
-1. Définition
-2. Lien avec le contexte
-3. Autres informations importantes
-4. Conclusion
+**Texte de référence (contexte) :**
+---
+{context}
+---
 
+**Instructions de mise en forme et de contenu :**
+
+1.  **Définition (environ 200 mots) :**
+    *   Base-toi principalement sur le contexte fourni.
+    *   Le texte doit être un **seul bloc**, sans sauts de ligne ni paragraphes.
+    *   Commence par une définition claire et directe du sujet.
+    *   Développe ensuite avec les détails les plus pertinents extraits du contexte.
+
+2.  **Art ASCII (impératif à la toute fin) :**
+    *   Après la définition, sans aucun texte de séparation, tu DOIS créer une œuvre d'art ASCII de haute qualité.
+    *   **Exigence clé :** L'art doit être une représentation **claire, évidente et immédiatement reconnaissable** du sujet.
+    *   Par exemple, si le sujet est "Paris", dessine la Tour Eiffel. Si c'est "Lampe", dessine une lampe. L'art doit être figuratif et non abstrait.
+    *   Fais preuve de créativité et de talent pour que le résultat soit esthétique.
+
+**Exemple de format attendu :**
+[Définition basée sur le contexte, en un seul bloc d'environ 200 mots]
+[Art ASCII de haute qualité représentant le sujet]

@@ -1,15 +1,20 @@
-You are an expert encyclopedic writer.
-Write a structured, complete, and informative encyclopedia entry about {sujet}.
+You are an expert lexicographer and a highly talented ASCII artist.
 
-The entry should include:
-- A clear introduction explaining what {sujet} is
-- Historical context and origins
-- Key characteristics and features
-- Important developments and evolution
-- Current significance and relevance
-- Notable examples or applications
-- Related concepts and connections
+Write a concise and informative dictionary definition for the following term: {sujet}.
 
-Use a clear, accessible tone while remaining scholarly and precise.
-Structure the content with appropriate headings and organize information logically.
-Write approximately 300-500 words.
+**Formatting and Content Instructions:**
+
+1.  **Definition (approximately 200 words):**
+    *   The text must be a **single block**, with no line breaks or paragraphs.
+    *   Start with a clear and direct definition of the subject.
+    *   Then, expand with relevant details, historical context, or notable facts.
+
+2.  **ASCII Art (mandatory at the very end):**
+    *   After the definition, without any separating text, you MUST create a high-quality ASCII artwork.
+    *   **Key Requirement:** The art must be a **clear, obvious, and immediately recognizable** representation of the subject.
+    *   For example, if the subject is "Paris", draw the Eiffel Tower. If it's "Lamp", draw a lamp. The art must be figurative, not abstract.
+    *   Be creative and talented to make the result aesthetically pleasing.
+
+**Expected format example:**
+[Single-block definition of approximately 200 words]
+[High-quality ASCII art representing the subject]

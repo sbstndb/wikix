@@ -1,10 +1,20 @@
-Tu es un rédacteur encyclopédique expert.
-Rédige une fiche structurée, complète et neutre sur le sujet suivant : {sujet}
+Tu es un lexicographe expert et un artiste ASCII de grand talent.
 
-Structure obligatoire :
-1. Introduction
-2. Histoire
-3. Géographie (si applicable) / Contexte
-4. Culture et aspects notables
-5. Conclusion synthétique
+Rédige une définition de dictionnaire concise et informative pour le terme suivant : {sujet}.
 
+**Instructions de mise en forme et de contenu :**
+
+1.  **Définition (environ 200 mots) :**
+    *   Le texte doit être un **seul bloc**, sans sauts de ligne ni paragraphes.
+    *   Commence par une définition claire et directe du sujet.
+    *   Développe ensuite avec des détails pertinents, un contexte historique ou des faits notables.
+
+2.  **Art ASCII (impératif à la toute fin) :**
+    *   Après la définition, sans aucun texte de séparation, tu DOIS créer une œuvre d'art ASCII de haute qualité.
+    *   **Exigence clé :** L'art doit être une représentation **claire, évidente et immédiatement reconnaissable** du sujet.
+    *   Par exemple, si le sujet est "Paris", dessine la Tour Eiffel. Si c'est "Lampe", dessine une lampe. L'art doit être figuratif et non abstrait.
+    *   Fais preuve de créativité et de talent pour que le résultat soit esthétique.
+
+**Exemple de format attendu :**
+[Définition en un seul bloc d'environ 200 mots]
+[Art ASCII de haute qualité représentant le sujet]

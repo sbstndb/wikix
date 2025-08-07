@@ -14,8 +14,15 @@ def generate_command(args):
     sujet = args.sujet
     output_file = GENERATED_DIR / f"{sujet.lower().replace(' ', '_')}.md"
     
+    # Utiliser le modèle spécifié ou celui par défaut
+    model = getattr(args, 'model', None)
+    
     print(f"🔍 Génération de la fiche pour '{sujet}'...")
-    md = generate_fiche(sujet, TEMPLATE_GENERAL)
+    if model:
+        print(f"🤖 Utilisation du modèle : {model}")
+        md = generate_fiche(sujet, TEMPLATE_GENERAL, model=model)
+    else:
+        md = generate_fiche(sujet, TEMPLATE_GENERAL)
     
     output_file.write_text(md, encoding="utf-8")
     print(f"✅ Fiche sauvegardée dans {output_file}")
@@ -36,8 +43,15 @@ def link_command(args):
     sujet = args.sujet
     output_file = GENERATED_DIR / f"{sujet.lower().replace(' ', '_')}_from_{context_file.stem}.md"
     
+    # Utiliser le modèle spécifié ou celui par défaut
+    model = getattr(args, 'model', None)
+    
     print(f"🔗 Génération de la fiche pour '{sujet}' avec contexte '{context_file.name}'...")
-    md = generate_fiche_with_context(sujet, context, TEMPLATE_CONTEXT)
+    if model:
+        print(f"🤖 Utilisation du modèle : {model}")
+        md = generate_fiche_with_context(sujet, context, TEMPLATE_CONTEXT, model=model)
+    else:
+        md = generate_fiche_with_context(sujet, context, TEMPLATE_CONTEXT)
     
     output_file.write_text(md, encoding="utf-8")
     print(f"✅ Fiche contextuelle sauvegardée dans {output_file}")
@@ -110,6 +124,7 @@ def create_parser():
     gen_parser = subparsers.add_parser("generate", help="Génère une fiche simple")
     gen_parser.add_argument("sujet", help="Sujet de la fiche à générer")
     gen_parser.add_argument("--show", action="store_true", help="Affiche la fiche après génération")
+    gen_parser.add_argument("--model", help="Modèle à utiliser (ex: openai/gpt-oss-120b, gpt-4o-mini, gemini-1.5-flash)")
     gen_parser.set_defaults(func=generate_command)
     
     # Commande 'link'
@@ -118,6 +133,7 @@ def create_parser():
     link_parser.add_argument("--context", dest="context_file", required=True, 
                            help="Fichier de contexte (.md)")
     link_parser.add_argument("--show", action="store_true", help="Affiche la fiche après génération")
+    link_parser.add_argument("--model", help="Modèle à utiliser (ex: openai/gpt-oss-120b, gpt-4o-mini, gemini-1.5-flash)")
     link_parser.set_defaults(func=link_command)
     
     # Commande 'list'
@@ -159,6 +175,7 @@ def main():
         class SimpleArgs:
             sujet = sys.argv[1]
             show = False
+            model = None
         generate_command(SimpleArgs())
         return
     
