@@ -1,0 +1,14 @@
+Tu es un rédacteur encyclopédique expert.
+En te basant sur le contexte fourni, écris une fiche sur le sujet suivant : {sujet}
+
+Contexte :
+"""
+{contexte}
+"""
+
+La fiche doit expliquer le lien avec le contexte et suivre la structure :
+1. Définition
+2. Lien avec le contexte
+3. Autres informations importantes
+4. Conclusion
+
