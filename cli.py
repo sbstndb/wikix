@@ -93,7 +93,7 @@ def interactive_command(args):
 def simple_command(args):
     """Commande 'simple' : lance l'interface TUI simple."""
     from .simple_tui import run_simple_tui
-    initial_subject = getattr(args, 'sujet', 'Lyon')
+    initial_subject = getattr(args, 'sujet', 'Wikipédia')
     run_simple_tui(initial_subject)
 
 
@@ -141,7 +141,7 @@ def create_parser():
     
     # Commande 'simple'
     simple_parser = subparsers.add_parser("simple", help="Lance l'interface TUI simple")
-    simple_parser.add_argument("sujet", nargs="?", default="Lyon", help="Sujet initial (défaut: Lyon)")
+    simple_parser.add_argument("sujet", nargs="?", default="Wikipédia", help="Sujet initial (défaut: Wikipédia)")
     simple_parser.set_defaults(func=simple_command)
     
     return parser

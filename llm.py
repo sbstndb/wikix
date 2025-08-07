@@ -47,31 +47,50 @@ def generate_fiche_with_context(subject: str, context: str, template: str, tempe
     return response.choices[0].message.content
 
 
-def generate_fiche_stream(subject: str, template: str, temperature: float = 0.7):
+def generate_fiche_stream(subject: str, template: str, temperature: float = 0.7, model: str = None):
     """Génère une fiche en streaming (générateur qui yield les mots au fur et à mesure)."""
     prompt = template.replace("{sujet}", subject)
-    stream = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        stream=True,
-    )
+    selected_model = model or MODEL_NAME
+    
+    # Adapter les paramètres selon le modèle
+    params = {
+        "model": selected_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+    }
+    
+    # Certains modèles (comme o3-mini et o4-mini) ne supportent pas le paramètre temperature
+    if not (selected_model.startswith("o3") or selected_model.startswith("o4")):
+        params["temperature"] = temperature
+    
+    stream = client.chat.completions.create(**params)
     
     for chunk in stream:
         if chunk.choices[0].delta.content is not None:
             yield chunk.choices[0].delta.content
 
 
-def generate_fiche_with_context_stream(subject: str, context: str, template: str, temperature: float = 0.7):
+def generate_fiche_with_context_stream(subject: str, context: str, template: str, temperature: float = 0.7, model: str = None):
     """Génère une fiche avec contexte en streaming."""
     prompt = template.replace("{sujet}", subject).replace("{contexte}", context)
-    stream = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        stream=True,
-    )
+    selected_model = model or MODEL_NAME
+    
+    # Adapter les paramètres selon le modèle
+    params = {
+        "model": selected_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+    }
+    
+    # Certains modèles (comme o3-mini et o4-mini) ne supportent pas le paramètre temperature
+    if not (selected_model.startswith("o3") or selected_model.startswith("o4")):
+        params["temperature"] = temperature
+    
+    stream = client.chat.completions.create(**params)
     
     for chunk in stream:
         if chunk.choices[0].delta.content is not None:
             yield chunk.choices[0].delta.content
+
+
+

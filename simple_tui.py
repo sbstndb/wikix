@@ -20,12 +20,21 @@ GENERATED_DIR.mkdir(exist_ok=True)
 
 
 class SimpleTUI:
-    def __init__(self, initial_subject: str = "Lyon"):
+    def __init__(self, initial_subject: str = "Wikipédia"):
         self.current_subject = initial_subject
         self.current_text = ""
         self.words: List[Tuple[str, int, int]] = []  # (word, line, col)
         self.cursor_word_index = 0
+        # Pile de navigation arrière (retour)
         self.history: List[str] = []
+        # Historique complet pour l'affichage latéral (dernier sujet en premier)
+        self.full_history: List[str] = [initial_subject]
+        self.history_cursor: int = 0  # Curseur dans le panneau historique
+        self.history_mode: bool = False  # Mode navigation dans l'historique
+        self.history_scroll: int = 0  # Décalage de scroll pour l'historique
+        # Cache des textes déjà générés (ou partiellement générés)
+        self.subject_texts: dict[str, str] = {initial_subject: ""}
+        
         self.scroll_offset = 0
         self.is_generating = False
         self.streaming_thread = None
@@ -45,6 +54,22 @@ class SimpleTUI:
             "fr": {"name": "Français", "flag": "FR"},
             "en": {"name": "English", "flag": "EN"},
             "es": {"name": "Español", "flag": "ES"}
+        }
+        
+        # Système de saisie de texte
+        self.input_mode = False
+        self.input_text = ""
+        self.input_prompt = "Entrez un sujet :"
+        
+
+        
+        # Système de sélection de modèle
+        self.current_model = "gpt-4o-mini"  # Modèle par défaut
+        self.available_models = {
+            "gpt-4o-mini": {"name": "4o-mini", "symbol": "🔹", "features": "standard"},
+            "gpt-4o": {"name": "4o", "symbol": "🔷", "features": "standard"},
+            "o3-mini": {"name": "o3-mini", "symbol": "🟦", "features": "no_temp"},
+            "o4-mini": {"name": "o4-mini", "symbol": "🟪", "features": "future"}  # Future model 😉
         }
         
         # Système de thèmes
@@ -194,6 +219,53 @@ class SimpleTUI:
         self.current_language = lang_keys[next_index]
         self.force_redraw = True
     
+    def cycle_model(self):
+        """Cycle entre les modèles disponibles."""
+        model_keys = list(self.available_models.keys())
+        current_index = model_keys.index(self.current_model)
+        next_index = (current_index + 1) % len(model_keys)
+        self.current_model = model_keys[next_index]
+        self.force_redraw = True
+    
+    def start_input_mode(self):
+        """Démarre le mode de saisie de texte."""
+        self.input_mode = True
+        self.input_text = ""
+        # Adapter le prompt selon la langue
+        if self.current_language == "en":
+            self.input_prompt = "Enter a subject:"
+        elif self.current_language == "es":
+            self.input_prompt = "Ingrese un tema:"
+        else:
+            self.input_prompt = "Entrez un sujet :"
+        self.force_redraw = True
+    
+    def cancel_input_mode(self):
+        """Annule le mode de saisie."""
+        self.input_mode = False
+        self.input_text = ""
+        self.force_redraw = True
+    
+    def handle_input_char(self, key):
+        """Gère la saisie de caractères en mode input."""
+        if key == 27:  # Escape
+            self.cancel_input_mode()
+        elif key == ord('\n') or key == ord('\r'):  # Entrée
+            if self.input_text.strip():
+                return self.input_text.strip()
+            else:
+                self.cancel_input_mode()
+        elif key == curses.KEY_BACKSPACE or key == 127 or key == 8:
+            # Backspace
+            if self.input_text:
+                self.input_text = self.input_text[:-1]
+                self.force_redraw = True
+        elif 32 <= key <= 126:  # Caractères imprimables
+            self.input_text += chr(key)
+            self.force_redraw = True
+        
+        return None
+    
     def init_colors(self):
         """Initialise les couleurs selon le thème actuel."""
         if not curses.has_colors():
@@ -241,17 +313,19 @@ class SimpleTUI:
         
         return general_template, context_template
     
+
+    
     def generate_fiche_streaming_thread(self, subject: str, previous_text: str):
         """Génère une fiche en streaming dans un thread séparé."""
         try:
             # Obtenir les templates pour la langue actuelle
             general_template, context_template = self.get_templates_for_language()
             
-            # Détermine le type de génération
+            # Détermine le type de génération avec le modèle sélectionné
             if previous_text and subject != self.current_subject:
-                stream_gen = generate_fiche_with_context_stream(subject, previous_text, context_template)
+                stream_gen = generate_fiche_with_context_stream(subject, previous_text, context_template, model=self.current_model)
             else:
-                stream_gen = generate_fiche_stream(subject, general_template)
+                stream_gen = generate_fiche_stream(subject, general_template, model=self.current_model)
             
             # Accumule le contenu progressivement
             full_content = ""
@@ -281,6 +355,14 @@ class SimpleTUI:
                 output_path = GENERATED_DIR / filename
                 output_path.write_text(full_content, encoding="utf-8")
             
+            # Mettre à jour le cache avec le contenu généré (même partiel)
+            self.subject_texts[self.current_subject] = full_content
+            
+            # Mettre à jour l'ordre historique : sujet en tête car (re)généré
+            if self.current_subject in self.full_history:
+                self.full_history.remove(self.current_subject)
+            self.full_history.insert(0, self.current_subject)
+            
             self.is_generating = False
             
         except Exception as e:
@@ -306,6 +388,11 @@ class SimpleTUI:
         # Effacer et redessiner seulement si nécessaire
         stdscr.erase()  # erase() au lieu de clear() pour moins de scintillement
         height, width = stdscr.getmaxyx()
+        
+        # Détermination du panneau historique
+        show_history_panel = width >= 60  # Afficher seulement si écran suffisamment large
+        left_panel_width = 24 if show_history_panel else 0  # Largeur fixe du panneau
+        right_width = width - left_panel_width  # Largeur disponible pour le contenu principal
         
         # Initialiser les couleurs selon le thème
         self.init_colors()
@@ -354,54 +441,126 @@ class SimpleTUI:
         # Instructions sous le titre
         theme_name = "🌙 Sombre" if self.current_theme == "dark" else "☀️ Clair"
         lang_info = self.languages[self.current_language]
-        if self.is_generating and self.selection_mode:
-            instructions = f"🔄📝 Génération + Sélection | ↑↓←→: Étendre | 't': {theme_name} | 'l': {lang_info['flag']} | 's': Arrêter"
+        model_info = self.available_models[self.current_model]
+        if self.history_mode:
+            instructions = "🗂️ Historique | ↑↓: Parcourir | Entrée: Ouvrir | Esc/h: Fermer"
+        elif self.input_mode:
+            instructions = f"✏️ Mode saisie | Tapez votre sujet puis Entrée | Esc: Annuler"
+        elif self.is_generating and self.selection_mode:
+            instructions = f"🔄📝 Génération + Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 's': Arrêter"
         elif self.is_generating:
-            instructions = f"🔄 En génération | ↑↓←→: Naviguer | Space: Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 's': Arrêter"
+            instructions = f"🔄 En génération | ↑↓←→: Naviguer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 's': Arrêter"
         elif self.selection_mode:
-            instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | Esc: Annuler"
+            instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | Esc: Annuler"
         else:
-            instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'b': Retour | 'q': Quitter"
+            instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 'r': Régénérer | 'i': Saisie | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'h': Hist. | 'b': Retour | 'q': Quitter"
         
         instructions_line = header_height
+        display_instr = instructions if len(instructions) <= width - 4 else instructions[: max(0, width - 4)]
+        x_instr = max(0, (width - len(display_instr)) // 2)
         try:
-            stdscr.addstr(instructions_line, (width - len(instructions)) // 2, instructions[:width-4], 
-                         curses.color_pair(4))
+            stdscr.addstr(instructions_line, x_instr, display_instr, curses.color_pair(4))
         except:
-            stdscr.addstr(instructions_line, (width - len(instructions)) // 2, instructions[:width-4], 
-                         curses.A_DIM)
+            stdscr.addstr(instructions_line, x_instr, display_instr, curses.A_DIM)
+        
+        # Zone de saisie si en mode input
+        input_line = instructions_line + 1
+        if self.input_mode:
+            # Afficher le prompt et la zone de saisie
+            prompt_text = f"{self.input_prompt} {self.input_text}"
+            cursor_indicator = "█" if len(self.input_text) % 2 == 0 else " "  # Curseur clignotant simple
+            display_text = f"{prompt_text}{cursor_indicator}"
+            
+            # Centrer la zone de saisie
+            try:
+                stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, 
+                             curses.color_pair(5) | curses.A_BOLD)
+            except:
+                stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, curses.A_BOLD)
+            
+            input_line += 2
         
         # Ligne de séparation élégante
-        separator_line = instructions_line + 1
+        separator_line = input_line
         try:
             stdscr.addstr(separator_line, 0, "─" * width, curses.color_pair(6))
         except:
             stdscr.addstr(separator_line, 0, "─" * width, curses.A_DIM)
         
+        # -----------------------------------------------------------------
+        # Affichage du panneau historique à gauche
+        # -----------------------------------------------------------------
+        if show_history_panel:
+            panel_height = height - (separator_line + 1) - 1  # Laisser la barre de statut
+            panel_start_line = separator_line + 1
+            # Bordure verticale droite du panneau
+            for y in range(panel_start_line, panel_start_line + panel_height):
+                try:
+                    stdscr.addstr(y, left_panel_width - 1, "│", curses.color_pair(6))
+                except:
+                    stdscr.addstr(y, left_panel_width - 1, "│", curses.A_DIM)
+            # Titre du panneau
+            title = "Historique"
+            try:
+                stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.color_pair(3) | curses.A_BOLD)
+            except:
+                stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.A_BOLD)
+            # Lignes de sujets
+            visible_items = self.full_history
+            max_visible = panel_height - 2  # Une ligne pour le titre, une pour le padding
+            if len(visible_items) > max_visible:
+                # Ajuster le scroll de l'historique
+                if self.history_cursor < self.history_scroll:
+                    self.history_scroll = self.history_cursor
+                elif self.history_cursor >= self.history_scroll + max_visible:
+                    self.history_scroll = self.history_cursor - max_visible + 1
+                items_slice = visible_items[self.history_scroll:self.history_scroll + max_visible]
+            else:
+                self.history_scroll = 0
+                items_slice = visible_items
+            for idx, subj in enumerate(items_slice):
+                line_no = panel_start_line + 1 + idx
+                is_current = (subj == self.current_subject)
+                is_selected = (self.history_mode and (self.history_scroll + idx) == self.history_cursor)
+                display_text = subj[:left_panel_width-2].ljust(left_panel_width-2)
+                try:
+                    if is_selected:
+                        stdscr.addstr(line_no, 1, display_text, curses.color_pair(2))
+                    elif is_current:
+                        stdscr.addstr(line_no, 1, display_text, curses.color_pair(7))
+                    else:
+                        stdscr.addstr(line_no, 1, display_text, curses.color_pair(1))
+                except:
+                    attr = curses.A_REVERSE if is_selected else (curses.A_BOLD if is_current else curses.A_NORMAL)
+                    stdscr.addstr(line_no, 1, display_text, attr)
+        
         # Affichage du texte avec mots surlignés
         if current_text_copy:  # Utilise la copie déjà récupérée
-            words, wrapped_lines = self.extract_words(current_text_copy, width)
+            # Extraire les mots avec la largeur complète
+            words, wrapped_lines = self.extract_words(current_text_copy, right_width)
             self.words = words
             
             # Calculer les marges pour l'affichage
-            left_margin, text_width = self.calculate_text_margins(width)
+            left_margin, text_width = self.calculate_text_margins(right_width)
             
-            # Calcul de la zone d'affichage (ajustée pour le nouveau header)
-            content_start = separator_line + 1
-            display_height = height - content_start - 1  # -1 pour la barre de statut
+            # Calcul de la zone d'affichage avec méthode dynamique
+            calculated_start, calculated_height = self.calculate_content_area(height)
+            content_start = separator_line + 1  # Position réelle du début de contenu
+            display_height = calculated_height  # Utiliser la hauteur calculée dynamiquement
             start_line = max(0, self.scroll_offset)
             end_line = min(len(wrapped_lines), start_line + display_height)
             
             # Affichage ligne par ligne avec marges
+            content_end = height - 1  # La barre de statut prend la dernière ligne
             for i, line in enumerate(wrapped_lines[start_line:end_line]):
                 screen_line = i + content_start
-                if screen_line >= height:
+                if screen_line >= content_end:  # Ne pas écrire sur la barre de statut
                     break
                 
                 # Afficher la ligne avec marge gauche
                 col = left_margin
                 for j, char in enumerate(line):
-                    if col >= width - left_margin:
+                    if col >= right_width - left_margin:
                         break
                     
                     # Vérifier le type de surlignage pour ce caractère
@@ -410,19 +569,20 @@ class SimpleTUI:
                     # Afficher avec le style approprié
                     try:
                         if char_style == "cursor":
-                            stdscr.addstr(screen_line, col, char, curses.color_pair(2))  # Curseur actuel
+                            stdscr.addstr(screen_line, col + left_panel_width, char, curses.color_pair(2))  # Curseur actuel
                         elif char_style == "selection":
-                            stdscr.addstr(screen_line, col, char, curses.color_pair(7) | curses.A_BOLD)  # Zone sélectionnée
+                            stdscr.addstr(screen_line, col + left_panel_width, char, curses.color_pair(7) | curses.A_BOLD)  # Zone sélectionnée
                         else:
-                            stdscr.addstr(screen_line, col, char, curses.color_pair(1))  # Texte normal
+                            stdscr.addstr(screen_line, col + left_panel_width, char, curses.color_pair(1))  # Texte normal
                     except:
                         if char_style == "cursor":
-                            stdscr.addstr(screen_line, col, char, curses.A_REVERSE)
+                            stdscr.addstr(screen_line, col + left_panel_width, char, curses.A_REVERSE)
                         elif char_style == "selection":
-                            stdscr.addstr(screen_line, col, char, curses.A_BOLD)
+                            stdscr.addstr(screen_line, col + left_panel_width, char, curses.A_BOLD)
                         else:
-                            stdscr.addstr(screen_line, col, char)
+                            stdscr.addstr(screen_line, col + left_panel_width, char)
                     col += 1
+
         else:
             # Message d'attente centré
             msg = "Génération de la fiche en cours..."
@@ -440,10 +600,26 @@ class SimpleTUI:
                 current_word = self.words[self.cursor_word_index][0] if self.cursor_word_index < len(self.words) else ""
                 status = f"📍 Mot {self.cursor_word_index + 1}/{len(self.words)}: {current_word}"
             
-            # Ajouter les indicateurs de thème et langue
+            # Ajouter les indicateurs de thème, langue et modèle
             theme_indicator = "🌙" if self.current_theme == "dark" else "☀️"
             lang_indicator = self.languages[self.current_language]["flag"]
-            status = f"{status} | {theme_indicator} | {lang_indicator}"
+            model_indicator = f"{self.available_models[self.current_model]['symbol']}{self.available_models[self.current_model]['name']}"
+            
+            # Ajouter un indicateur de scroll si nécessaire
+            if current_text_copy:
+                words, wrapped_lines = self.extract_words(current_text_copy, right_width)
+                total_lines = len(wrapped_lines)
+                content_start, available_height = self.calculate_content_area(height)
+                
+                if total_lines > available_height:
+                    visible_start = self.scroll_offset + 1
+                    visible_end = min(self.scroll_offset + available_height, total_lines)
+                    scroll_info = f"({visible_start}-{visible_end}/{total_lines})"
+                    status = f"{status} | {scroll_info}"
+            
+            # Assembler la barre de statut finale
+            status_parts = [status, theme_indicator, lang_indicator, model_indicator]
+            status = " | ".join(status_parts)
             
             # Centrer la barre de statut
             status_pos = max(2, (width - len(status)) // 2)
@@ -456,18 +632,18 @@ class SimpleTUI:
         
         # Ajouter des bordures subtiles pour le contenu seulement
         if width > 40 and current_text_copy:  # Seulement sur les écrans assez larges et avec du contenu
-            left_margin, text_width = self.calculate_text_margins(width)
+            left_margin, text_width = self.calculate_text_margins(right_width)
             content_start_border = separator_line + 1
             if left_margin > 3:
                 # Bordures verticales subtiles pour le contenu avec couleur
                 for y in range(content_start_border, height - 1):
                     try:
-                        stdscr.addstr(y, left_margin - 2, "│", curses.color_pair(6))
-                        stdscr.addstr(y, left_margin + text_width + 1, "│", curses.color_pair(6))
+                        stdscr.addstr(y, left_margin - 2 + left_panel_width, "│", curses.color_pair(6))
+                        stdscr.addstr(y, left_margin + text_width + 1 + left_panel_width, "│", curses.color_pair(6))
                     except:
                         try:
-                            stdscr.addstr(y, left_margin - 2, "│", curses.A_DIM)
-                            stdscr.addstr(y, left_margin + text_width + 1, "│", curses.A_DIM)
+                            stdscr.addstr(y, left_margin - 2 + left_panel_width, "│", curses.A_DIM)
+                            stdscr.addstr(y, left_margin + text_width + 1 + left_panel_width, "│", curses.A_DIM)
                         except:
                             pass  # Ignore si hors écran
         
@@ -477,24 +653,100 @@ class SimpleTUI:
         """Gère les entrées clavier."""
         height, width = stdscr.getmaxyx()
         
+        # Gestion du mode historique
+        if self.history_mode:
+            if key in (27, ord('h')):  # Escape ou 'h' pour quitter le mode historique
+                self.history_mode = False
+                self.force_redraw = True
+                return False
+            elif key == curses.KEY_UP:
+                if self.history_cursor > 0:
+                    self.history_cursor -= 1
+                    self.force_redraw = True
+                return False
+            elif key == curses.KEY_DOWN:
+                if self.history_cursor < len(self.full_history) - 1:
+                    self.history_cursor += 1
+                    self.force_redraw = True
+                return False
+            elif key == ord('\n') or key == ord('\r'):
+                # Sélectionner le sujet courant du curseur historique
+                if 0 <= self.history_cursor < len(self.full_history):
+                    selected_subject = self.full_history[self.history_cursor]
+                    # Si on quitte le sujet actuel, arrêter éventuellement la génération
+                    if self.is_generating:
+                        self.stop_streaming = True
+                        if self.streaming_thread:
+                            self.streaming_thread.join(timeout=1)
+                        self.is_generating = False
+                    # Sauvegarder le texte actuel dans le cache
+                    with self.text_lock:
+                        self.subject_texts[self.current_subject] = self.current_text
+                    self.history_mode = False
+                    # Ouvrir le sujet sélectionné : si déjà généré, afficher, sinon générer
+                    # La position dans l'historique reste basée sur la date de génération
+                    self.history_cursor = 0
+                    if selected_subject in self.subject_texts:
+                        self.current_subject = selected_subject
+                        with self.text_lock:
+                            self.current_text = self.subject_texts.get(selected_subject, "") or f"🔄 Génération de '{selected_subject}' en cours..."
+                            self.force_redraw = True
+                        if not self.current_text.startswith("🔄 Génération") and self.current_text:
+                            # Contenu existant : rien à faire
+                            self.is_generating = False
+                        else:
+                            # Pas de contenu : générer
+                            self.load_subject_streaming(selected_subject, stdscr)
+                    else:
+                        # Sujet inconnu : lancer une génération
+                        self.load_subject_streaming(selected_subject, stdscr)
+                    return False
+            else:
+                # Ignorer autres touches
+                return False
+        
+        # Si en mode saisie, gérer différemment
+        if self.input_mode:
+            result = self.handle_input_char(key)
+            if result:  # L'utilisateur a validé sa saisie
+                self.input_mode = False
+                self.history.append(self.current_subject)
+                self.load_subject_streaming(result, stdscr)
+            return False
+        
         if key == ord('q'):
             # Arrêter le streaming si en cours
             if self.is_generating:
                 self.stop_streaming = True
                 if self.streaming_thread:
                     self.streaming_thread.join(timeout=1)
-            return False
+            return True
         elif key == ord('s') and self.is_generating:
             # Arrêter la génération en cours
             self.stop_streaming = True
             if self.streaming_thread:
                 self.streaming_thread.join(timeout=1)
+            self.is_generating = False
+            self.force_redraw = True
+        elif key == ord('r') and not self.is_generating:
+            # Régénérer la fiche actuelle
+            self.load_subject_streaming(self.current_subject, stdscr)
+        elif key == ord('h'):
+            # Basculer le mode historique
+            self.history_mode = not self.history_mode
+            self.force_redraw = True
         elif key == ord('t'):
             # Basculer entre les thèmes
             self.toggle_theme()
         elif key == ord('l'):
             # Changer de langue
             self.cycle_language()
+        elif key == ord('m'):
+            # Changer de modèle
+            self.cycle_model()
+        elif key == ord('i') and not self.is_generating:
+            # Démarrer le mode de saisie
+            self.start_input_mode()
         elif key == ord('b') and self.history:
             # Retour en arrière (interrompt le streaming en cours si nécessaire)
             prev_subject = self.history.pop()
@@ -556,7 +808,7 @@ class SimpleTUI:
                         self.clear_selection()
                     self.load_subject_streaming(selected_text, stdscr)
         
-        return True
+        return False
     
     def find_word_above(self) -> int:
         """Trouve le mot le plus proche au-dessus du mot actuel."""
@@ -654,13 +906,28 @@ class SimpleTUI:
         
         return best_index
     
+    def calculate_content_area(self, height):
+        """Calcule la zone de contenu disponible selon l'état actuel de l'interface."""
+        # Structure dynamique de l'écran :
+        header_height = 4 if len(self.current_subject) > 20 else 2  # Titre sur 1 ou 2 lignes
+        instructions_height = 1
+        input_height = 2 if self.input_mode else 0  # Zone de saisie si active
+        separator_height = 1
+        status_height = 1
+        
+        ui_total = header_height + instructions_height + input_height + separator_height + status_height
+        content_start = ui_total - status_height  # Début de la zone de contenu
+        content_height = height - ui_total  # Hauteur disponible pour le contenu
+        
+        return content_start, max(1, content_height)
+    
     def adjust_scroll(self, height):
         """Ajuste le scroll pour garder le mot sélectionné visible."""
         if not self.words:
             return
         
         word_line = self.words[self.cursor_word_index][1]
-        display_height = height - 4
+        content_start, display_height = self.calculate_content_area(height)
         
         if word_line < self.scroll_offset:
             self.scroll_offset = word_line
@@ -678,7 +945,13 @@ class SimpleTUI:
         # Sauvegarder le contexte actuel (seulement si ce n'est pas un message d'attente)
         with self.text_lock:
             previous_text = self.current_text if not self.current_text.startswith("Génération en cours") else ""
+        # Sauvegarder le texte courant dans le cache
+        self.subject_texts[self.current_subject] = previous_text
         
+        # Ajouter au panneau historique uniquement si nouveau sujet
+        if subject not in self.full_history:
+            self.full_history.insert(0, subject)
+        self.history_cursor = 0
         # Réinitialiser l'état
         self.current_subject = subject
         with self.text_lock:
@@ -735,7 +1008,9 @@ class SimpleTUI:
             
             key = stdscr.getch()
             if key != -1:  # Si une touche a été pressée
-                running = self.handle_input(stdscr, key)
+                should_quit = self.handle_input(stdscr, key)
+                if should_quit:
+                    running = False
         
         # Nettoyage à la sortie
         if self.is_generating:
