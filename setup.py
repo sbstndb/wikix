@@ -17,7 +17,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "wikix=wikix.cli:main",
+            "wikix=wikix.commands.main:main",
         ],
     },
     include_package_data=True,

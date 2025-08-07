@@ -9,4 +9,4 @@ if [ -z "$OPENAI_API_KEY" ]; then
 fi
 
 # Lance wikix avec les arguments passés
-cd /home/sbstndbs/sbstndbs && python -m wikix "$@"
+wikix "$@"

@@ -5,14 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .llm import generate_fiche, generate_fiche_with_context
-
-BASE_DIR = Path(__file__).resolve().parent
-PROMPT_DIR = BASE_DIR / "prompts"
-TEMPLATE_GENERAL = (PROMPT_DIR / "fiche_generale.txt").read_text(encoding="utf-8")
-TEMPLATE_CONTEXT = (PROMPT_DIR / "fiche_contexte.txt").read_text(encoding="utf-8")
-GENERATED_DIR = BASE_DIR / "generated"
-GENERATED_DIR.mkdir(exist_ok=True)
+from wikix.core.llm import generate_fiche, generate_fiche_with_context
+from wikix.core.config import GENERATED_DIR, TEMPLATE_GENERAL, TEMPLATE_CONTEXT
 
 
 def generate_command(args):
@@ -86,13 +80,13 @@ def show_command(args):
 
 def interactive_command(args):
     """Commande 'interactive' : lance l'interface TUI."""
-    from .ui import WikiApp
+    from wikix.tui.textual_ui import WikiApp
     WikiApp().run()
 
 
 def simple_command(args):
     """Commande 'simple' : lance l'interface TUI simple."""
-    from .simple_tui import run_simple_tui
+    from wikix.tui.simple_tui import run_simple_tui
     initial_subject = getattr(args, 'sujet', 'Wikipédia')
     run_simple_tui(initial_subject)
 
