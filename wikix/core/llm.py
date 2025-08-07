@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from typing import Iterator
+from collections.abc import Iterator
 
-import openai
 import google.generativeai as genai
+import openai
 import requests
 from dotenv import load_dotenv
 
@@ -71,7 +71,7 @@ class OpenAIProvider(LLMProvider):
         params = {"model": selected_model, "messages": [{"role": "user", "content": prompt}], "stream": True}
         if not (selected_model.startswith("o3") or selected_model.startswith("o4")):
             params["temperature"] = temperature
-        
+
         stream = self.client.chat.completions.create(**params)
         for chunk in stream:
             if chunk.choices[0].delta.content is not None:
@@ -148,17 +148,17 @@ class GeminiProvider(LLMProvider):
     ) -> Iterator[str]:
         selected_model = model or self.default_model
         model_instance = genai.GenerativeModel(selected_model)
-        
+
         generation_config = genai.types.GenerationConfig(
             temperature=temperature
         )
-        
+
         responses = model_instance.generate_content(
             prompt,
             stream=True,
             generation_config=generation_config
         )
-        
+
         for response in responses:
             yield response.text
 
@@ -170,7 +170,7 @@ class CerebrasProvider(LLMProvider):
     def __init__(self):
         if not CEREBRAS_API_KEY:
             raise ValueError("La clé d'API Cerebras est requise pour ce fournisseur.")
-        
+
         self.api_key = CEREBRAS_API_KEY
         self.base_url = "https://api.cerebras.ai/v1"
         self.default_model = "llama3.1-8b"
@@ -179,60 +179,60 @@ class CerebrasProvider(LLMProvider):
         self, prompt: str, temperature: float = 0.7, model: str | None = None
     ) -> Iterator[str]:
         selected_model = model or self.default_model
-        
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
-        
+
         data = {
             "model": selected_model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
             "temperature": temperature
         }
-        
+
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=data,
             stream=True
         )
-        
+
         if response.status_code != 200:
             raise RuntimeError(f"Erreur Cerebras: {response.status_code} - {response.text}")
-        
+
         for line in response.iter_lines():
             if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
+                line = line.decode("utf-8")
+                if line.startswith("data: "):
                     data_str = line[6:]  # Enlever 'data: '
-                    if data_str.strip() == '[DONE]':
+                    if data_str.strip() == "[DONE]":
                         break
                     try:
                         import json
                         chunk = json.loads(data_str)
-                        if 'choices' in chunk and len(chunk['choices']) > 0:
-                            delta = chunk['choices'][0].get('delta', {})
-                            if 'content' in delta and delta['content']:
-                                yield delta['content']
+                        if "choices" in chunk and len(chunk["choices"]) > 0:
+                            delta = chunk["choices"][0].get("delta", {})
+                            if "content" in delta and delta["content"]:
+                                yield delta["content"]
                     except json.JSONDecodeError:
                         continue
 
 
 # --- Fonctions dépréciées (à supprimer après refactoring complet) ---
-def generate_fiche_stream(subject: str, template: str, temperature: float = 0.7, model: str = None):
+def generate_fiche_stream(subject: str, template: str, temperature: float = 0.7, model: str | None = None):
     prompt = template.replace("{sujet}", subject)
     provider = get_provider(model)
     return provider.generate_stream(prompt, temperature, model)
 
-def generate_fiche_with_context_stream(subject: str, context: str, template: str, temperature: float = 0.7, model: str = None):
+def generate_fiche_with_context_stream(subject: str, context: str, template: str, temperature: float = 0.7, model: str | None = None):
     provider = get_provider(model)
     return provider.generate_with_context_stream(subject, context, template, temperature, model)
 
 
 # --- Sélecteur de fournisseur ---
-PROVIDER_MAPPING = {
+PROVIDER_MAPPING: dict[str, type[LLMProvider]] = {
     "gpt": OpenAIProvider,
     "o3": OpenAIProvider,
     "o4": OpenAIProvider,
@@ -243,27 +243,27 @@ PROVIDER_MAPPING = {
     "openai/gpt-oss": OpenRouterProvider,
 }
 
-def get_provider(model_name: str) -> LLMProvider:
+def get_provider(model_name: str | None) -> LLMProvider:
     """Retourne le fournisseur approprié en fonction du nom du modèle."""
     if not model_name:
         return OpenAIProvider()
-        
+
     for prefix, provider_class in PROVIDER_MAPPING.items():
         if model_name.startswith(prefix):
             return provider_class()
-    
+
     raise ValueError(f"Aucun fournisseur trouvé pour le modèle '{model_name}'.")
 
 
 # --- Fonctions pour la compatibilité descendante ---
-def generate_fiche(subject: str, template: str, temperature: float = 0.7, model: str = None) -> str:
+def generate_fiche(subject: str, template: str, temperature: float = 0.7, model: str | None = None) -> str:
     """Génère une fiche simple (non-stream)."""
     selected_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     provider = get_provider(selected_model)
     stream = provider.generate_stream(template.replace("{sujet}", subject), temperature, selected_model)
     return "".join(stream)
 
-def generate_fiche_with_context(subject: str, context: str, template: str, temperature: float = 0.7, model: str = None) -> str:
+def generate_fiche_with_context(subject: str, context: str, template: str, temperature: float = 0.7, model: str | None = None) -> str:
     """Génère une fiche avec contexte (non-stream)."""
     selected_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     provider = get_provider(selected_model)

@@ -1,22 +1,18 @@
 """Interface TUI simple basée sur curses pour navigation dans le texte."""
 from __future__ import annotations
 
+import contextlib
 import curses
 import re
 import textwrap
 import threading
 import time
-from pathlib import Path
-from typing import List, Tuple
 
-from wikix.core.llm import (
-    generate_fiche_stream, 
-    generate_fiche_with_context_stream
-)
 from wikix.core.config import (
     GENERATED_DIR,
     get_template_for_lang,
 )
+from wikix.core.llm import generate_fiche_stream, generate_fiche_with_context_stream
 
 
 class TUIState:
@@ -24,16 +20,16 @@ class TUIState:
     def __init__(self, initial_subject: str = "Wikipédia"):
         self.current_subject: str = initial_subject
         self.current_text: str = ""
-        self.words: List[Tuple[str, int, int]] = []
-        self.wrapped_lines: List[str] = []
+        self.words: list[tuple[str, int, int]] = []
+        self.wrapped_lines: list[str] = []
         self.cursor_word_index: int = 0
-        self.history: List[str] = []
-        self.full_history: List[str] = [initial_subject]
+        self.history: list[str] = []
+        self.full_history: list[str] = [initial_subject]
         self.history_cursor: int = 0
         self.history_mode: bool = False
         self.history_scroll: int = 0
         self.subject_texts: dict[str, str] = {initial_subject: ""}
-        
+
         self.scroll_offset: int = 0
         self.is_generating: bool = False
         self.streaming_thread: threading.Thread | None = None
@@ -41,22 +37,22 @@ class TUIState:
         self.text_lock = threading.Lock()
         self.last_text_hash: int = 0
         self.force_redraw: bool = False
-        
+
         self.selection_mode: bool = False
         self.selection_start: int = -1
         self.selection_end: int = -1
-        
+
         self.current_language: str = "fr"
         self.languages: dict = {
             "fr": {"name": "Français", "flag": "FR"},
             "en": {"name": "English", "flag": "EN"},
             "es": {"name": "Español", "flag": "ES"}
         }
-        
+
         self.input_mode: bool = False
         self.input_text: str = ""
         self.input_prompt: str = "Entrez un sujet :"
-        
+
         self.current_model: str = "gpt-4o-mini"
         self.available_models: dict = {
             "gpt-4o-mini": {"name": "4o-mini", "symbol": "🔹", "features": "standard"},
@@ -71,7 +67,7 @@ class TUIState:
             "o4-mini": {"name": "o4-mini", "symbol": "🟪", "features": "future"},
             "openai/gpt-oss-120b": {"name": "gpt-oss-120b", "symbol": "🧠", "features": "cerebras"}
         }
-        
+
         self.current_theme: str = "dark"
         self.themes: dict = {
             "dark": {
@@ -119,7 +115,7 @@ class SimpleTUI:
         # Ligne du logo
         try:
             stdscr.addstr(0, (width - len(title_line1)) // 2, title_line1, curses.color_pair(1) | curses.A_BOLD)
-        except:
+        except Exception:
             stdscr.addstr(0, (width - len(title_line1)) // 2, title_line1, curses.A_BOLD)
 
         # Construction de l'encadrement du sujet
@@ -132,7 +128,7 @@ class SimpleTUI:
             x = (width - len(line)) // 2
             try:
                 stdscr.addstr(idx, x, line, curses.color_pair(1) | curses.A_BOLD)
-            except:
+            except Exception:
                 stdscr.addstr(idx, x, line, curses.A_BOLD)
 
         return 4
@@ -146,7 +142,7 @@ class SimpleTUI:
         title = "Historique"
         try:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.color_pair(3) | curses.A_BOLD)
-        except:
+        except Exception:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.A_BOLD)
 
         visible_items = self.state.full_history
@@ -172,7 +168,7 @@ class SimpleTUI:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(7))
                 else:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(1))
-            except:
+            except Exception:
                 attr = curses.A_REVERSE if is_selected else (curses.A_BOLD if is_current else curses.A_NORMAL)
                 stdscr.addstr(line_no, 1, display_text, attr)
 
@@ -180,7 +176,7 @@ class SimpleTUI:
         """Dessine le contenu principal de la fiche en itérant sur les mots."""
         # Les calculs se basent sur la 'right_width' (zone de contenu)
         content_left_margin, text_width = self.calculate_text_margins(right_width)
-        
+
         words, wrapped_lines = self.extract_words(current_text_copy, text_width)
         self.state.words = words
         self.state.wrapped_lines = wrapped_lines
@@ -188,7 +184,7 @@ class SimpleTUI:
         _, display_height = self.calculate_content_area(height)
         content_start_y = separator_line + 1
         scroll_start_line = self.state.scroll_offset
-        
+
         visible_lines = wrapped_lines[scroll_start_line : scroll_start_line + display_height]
         vertical_offset = max(0, (display_height - len(visible_lines)) // 2)
 
@@ -217,10 +213,8 @@ class SimpleTUI:
                 if style:
                     screen_y = (line_idx - scroll_start_line) + content_start_y + vertical_offset
                     screen_x = left_panel_width + content_left_margin + col_start
-                    try:
+                    with contextlib.suppress(curses.error):
                         stdscr.addstr(screen_y, screen_x, text, style)
-                    except curses.error:
-                        pass
 
     def calculate_text_margins(self, width: int) -> tuple[int, int]:
         """Calcule des marges équilibrées et une largeur de texte maximale raisonnable."""
@@ -233,65 +227,65 @@ class SimpleTUI:
         # Marges gauche/droite identiques
         left_margin = max(4, (width - text_width) // 2)
         return left_margin, text_width
-    
-    def extract_words(self, text: str, text_width: int) -> List[Tuple[str, int, int]]:
+
+    def extract_words(self, text: str, text_width: int) -> tuple[list[tuple[str, int, int]], list[str]]:
         """Extrait les mots avec leurs positions après wrapping du texte."""
         words = []
-        lines = text.split('\n')
+        lines = text.split("\n")
         wrapped_lines = []
-        
+
         for line in lines:
             if line.strip():
                 # Utiliser text_width directement pour le wrapping
                 wrapped = textwrap.fill(line, width=text_width)
-                wrapped_lines.extend(wrapped.split('\n'))
+                wrapped_lines.extend(wrapped.split("\n"))
             else:
-                wrapped_lines.append('')
-        
+                wrapped_lines.append("")
+
         for line_num, line in enumerate(wrapped_lines):
-            for match in re.finditer(r'\b[A-Za-zÀ-ÿ]+\b', line):
+            for match in re.finditer(r"\b[A-Za-zÀ-ÿ]+\b", line):
                 word = match.group()
                 # La position (colonne) est relative au début de la ligne wrappée
                 words.append((word, line_num, match.start()))
-        
+
         return words, wrapped_lines
-    
+
     def get_selected_text(self) -> str:
         """Retourne le texte sélectionné (groupe de mots)."""
         if not self.state.selection_mode or self.state.selection_start == -1 or self.state.selection_end == -1:
             if self.state.words and self.state.cursor_word_index < len(self.state.words):
                 return self.state.words[self.state.cursor_word_index][0]
             return ""
-        
+
         start_idx = min(self.state.selection_start, self.state.selection_end)
         end_idx = max(self.state.selection_start, self.state.selection_end)
-        
+
         selected_words = [self.state.words[i][0] for i in range(start_idx, end_idx + 1) if i < len(self.state.words)]
-        
+
         return " ".join(selected_words)
-    
+
     def clear_selection(self):
         """Efface la sélection actuelle."""
         self.state.selection_mode = False
         self.state.selection_start = -1
         self.state.selection_end = -1
         self.state.force_redraw = True
-    
+
     def start_selection(self):
         """Démarre une nouvelle sélection au curseur actuel."""
         self.state.selection_mode = True
         self.state.selection_start = self.state.cursor_word_index
         self.state.selection_end = self.state.cursor_word_index
         self.state.force_redraw = True
-    
+
     def update_selection_end(self):
         """Met à jour la fin de la sélection au curseur actuel."""
         if self.state.selection_mode:
             self.state.selection_end = self.state.cursor_word_index
             self.state.force_redraw = True
-    
 
-    
+
+
     def toggle_theme(self):
         """Cycle entre les thèmes disponibles."""
         theme_keys = list(self.state.themes.keys())
@@ -299,7 +293,7 @@ class SimpleTUI:
         next_index = (current_index + 1) % len(theme_keys)
         self.state.current_theme = theme_keys[next_index]
         self.state.force_redraw = True
-    
+
     def cycle_language(self):
         """Cycle entre les langues disponibles."""
         lang_keys = list(self.state.languages.keys())
@@ -307,7 +301,7 @@ class SimpleTUI:
         next_index = (current_index + 1) % len(lang_keys)
         self.state.current_language = lang_keys[next_index]
         self.state.force_redraw = True
-    
+
     def cycle_model(self):
         """Cycle entre les modèles disponibles."""
         model_keys = list(self.state.available_models.keys())
@@ -315,7 +309,7 @@ class SimpleTUI:
         next_index = (current_index + 1) % len(model_keys)
         self.state.current_model = model_keys[next_index]
         self.state.force_redraw = True
-    
+
     def start_input_mode(self):
         """Démarre le mode de saisie de texte."""
         self.state.input_mode = True
@@ -327,22 +321,21 @@ class SimpleTUI:
         else:
             self.state.input_prompt = "Entrez un sujet :"
         self.state.force_redraw = True
-    
+
     def cancel_input_mode(self):
         """Annule le mode de saisie."""
         self.state.input_mode = False
         self.state.input_text = ""
         self.state.force_redraw = True
-    
+
     def handle_input_char(self, key):
         """Gère la saisie de caractères en mode input."""
         if key == 27:
             self.cancel_input_mode()
-        elif key in (ord('\n'), ord('\r')):
+        elif key in (ord("\n"), ord("\r")):
             if self.state.input_text.strip():
                 return self.state.input_text.strip()
-            else:
-                self.cancel_input_mode()
+            self.cancel_input_mode()
         elif key in (curses.KEY_BACKSPACE, 127, 8):
             if self.state.input_text:
                 self.state.input_text = self.state.input_text[:-1]
@@ -351,16 +344,17 @@ class SimpleTUI:
             self.state.input_text += chr(key)
             self.state.force_redraw = True
         return None
-    
+
     def init_colors(self):
         """Initialise les couleurs selon le thème actuel."""
-        if not curses.has_colors(): return
-        
+        if not curses.has_colors():
+            return
+
         try:
             curses.start_color()
             curses.use_default_colors()
             theme = self.state.themes[self.state.current_theme]
-            
+
             # Paires de couleurs standard
             curses.init_pair(1, theme["text"], theme["bg"])
             curses.init_pair(2, theme["cursor_text"], theme["cursor_bg"])
@@ -376,7 +370,7 @@ class SimpleTUI:
             else:
                 curses.init_pair(7, theme["selection"], theme["bg"])
 
-        except:
+        except Exception:
             # Fallback en cas d'erreur
             curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
             curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
@@ -385,35 +379,36 @@ class SimpleTUI:
             curses.init_pair(5, curses.COLOR_GREEN, curses.COLOR_BLACK)
             curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
             curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
-    
+
     def get_templates_for_language(self):
         """Retourne les templates appropriés pour la langue actuelle."""
         return get_template_for_lang(self.state.current_language, with_context=False), \
                get_template_for_lang(self.state.current_language, with_context=True)
-    
+
     def generate_fiche_streaming_thread(self, subject: str, previous_text: str):
         """Génère une fiche en streaming dans un thread séparé."""
         try:
             general_template, context_template = self.get_templates_for_language()
-            
+
             if previous_text and subject != self.state.current_subject:
                 stream_gen = generate_fiche_with_context_stream(subject, previous_text, context_template, model=self.state.current_model)
             else:
                 stream_gen = generate_fiche_stream(subject, general_template, model=self.state.current_model)
-            
+
             full_content = ""
             for chunk in stream_gen:
-                if self.state.stop_streaming: break
+                if self.state.stop_streaming:
+                    break
                 full_content += chunk
                 with self.state.text_lock:
                     self.state.current_text = full_content
                     self.state.force_redraw = True
                 time.sleep(0.08)
-            
+
             if not self.state.stop_streaming:
                 output_path = GENERATED_DIR / f"{subject.lower().replace(' ', '_')}.md"
                 output_path.write_text(full_content, encoding="utf-8")
-            
+
             self.state.subject_texts[self.state.current_subject] = full_content
             if self.state.current_subject in self.state.full_history:
                 self.state.full_history.remove(self.state.current_subject)
@@ -423,36 +418,35 @@ class SimpleTUI:
             with self.state.text_lock:
                 self.state.current_text = f"Erreur lors de la génération : {str(e)}"
             self.state.is_generating = False
-    
+
     def draw_screen(self, stdscr):
         """Dessine l'écran principal."""
         with self.state.text_lock:
             current_text_copy = self.state.current_text
             current_hash = hash(current_text_copy + str(self.state.cursor_word_index) + str(self.state.scroll_offset))
             needs_redraw = (current_hash != self.state.last_text_hash) or self.state.force_redraw
-            
-            if not needs_redraw: return
-                
+
+            if not needs_redraw:
+                return
+
             self.state.last_text_hash = current_hash
             self.state.force_redraw = False
-        
+
         stdscr.erase()
         height, width = stdscr.getmaxyx()
-        
+
         show_history_panel = width >= 60
         left_panel_width = 24 if show_history_panel else 0
         right_width = width - left_panel_width
-        
+
         self.init_colors()
-        
-        try:
-            stdscr.bkgd(' ', curses.color_pair(1))
-        except:
-            pass
-        
+
+        with contextlib.suppress(Exception):
+            stdscr.bkgd(" ", curses.color_pair(1))
+
         header_height = self._draw_header(stdscr, width)
-        
-        
+
+
         theme_map = {
             "dark": "🌙 Sombre", "light": "☀️ Clair", "ocean": "🌊 Océan",
             "matrix": "📟 Matrix", "pure_black": "🖤 Noir Pur", "pure_white": "🤍 Blanc Pur"
@@ -463,7 +457,7 @@ class SimpleTUI:
         if self.state.history_mode:
             instructions = "🗂️ Historique | ↑↓: Parcourir | Entrée: Ouvrir | Esc/h: Fermer"
         elif self.state.input_mode:
-            instructions = f"✏️ Mode saisie | Tapez votre sujet puis Entrée | Esc: Annuler"
+            instructions = "✏️ Mode saisie | Tapez votre sujet puis Entrée | Esc: Annuler"
         elif self.state.is_generating and self.state.selection_mode:
             instructions = f"🔄📝 Génération + Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 's': Arrêter"
         elif self.state.is_generating:
@@ -472,15 +466,15 @@ class SimpleTUI:
             instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | Esc: Annuler"
         else:
             instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 'r': Régénérer | 'i': Saisie | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'h': Hist. | 'b': Retour | 'q': Quitter"
-        
+
         instructions_line = header_height
         display_instr = instructions[:max(0, width - 4)]
         x_instr = max(0, (width - len(display_instr)) // 2)
         try:
             stdscr.addstr(instructions_line, x_instr, display_instr, curses.color_pair(4))
-        except:
+        except Exception:
             stdscr.addstr(instructions_line, x_instr, display_instr, curses.A_DIM)
-        
+
         input_line = instructions_line + 1
         if self.state.input_mode:
             prompt_text = f"{self.state.input_prompt} {self.state.input_text}"
@@ -488,87 +482,87 @@ class SimpleTUI:
             display_text = f"{prompt_text}{cursor_indicator}"
             try:
                 stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, curses.color_pair(5) | curses.A_BOLD)
-            except:
+            except Exception:
                 stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, curses.A_BOLD)
             input_line += 2
-        
+
         separator_line = input_line
         # Séparateur horizontal retiré pour un design plus épuré
         try:
             stdscr.addstr(separator_line, 0, " " * width, curses.color_pair(6))
-        except:
+        except Exception:
             stdscr.addstr(separator_line, 0, " " * width)
-        
+
         if show_history_panel:
             self._draw_history_panel(stdscr, height, separator_line, left_panel_width)
-        
+
         if current_text_copy:
             self._draw_content(stdscr, height, right_width, separator_line, left_panel_width, current_text_copy)
         else:
             msg = "Génération de la fiche en cours..."
             stdscr.addstr(height // 2, (width - len(msg)) // 2, msg)
-        
+
         if self.state.words:
             if self.state.selection_mode and self.state.selection_start != -1 and self.state.selection_end != -1:
                 selected_text = self.get_selected_text()
                 if len(selected_text) > 25:
                     selected_text = selected_text[:22] + "..."
-                status = f"📝 Sélection: \"{selected_text}\" ({abs(self.state.selection_end - self.state.selection_start) + 1} mots)"
+                status = f'📝 Sélection: "{selected_text}" ({abs(self.state.selection_end - self.state.selection_start) + 1} mots)'
             else:
                 current_word = self.state.words[self.state.cursor_word_index][0] if self.state.cursor_word_index < len(self.state.words) else ""
                 status = f"📍 Mot {self.state.cursor_word_index + 1}/{len(self.state.words)}: {current_word}"
-            
+
             theme_indicator = "🌙" if self.state.current_theme == "dark" else "☀️"
             lang_indicator = self.state.languages[self.state.current_language]["flag"]
             model_indicator = f"{self.state.available_models[self.state.current_model]['symbol']}{self.state.available_models[self.state.current_model]['name']}"
-            
+
             if current_text_copy:
                 total_lines = len(self.state.wrapped_lines)
                 _, available_height = self.calculate_content_area(height)
-                
+
                 if total_lines > available_height:
                     visible_start = self.state.scroll_offset + 1
                     visible_end = min(self.state.scroll_offset + available_height, total_lines)
                     scroll_info = f"({visible_start}-{visible_end}/{total_lines})"
                     status = f"{status} | {scroll_info}"
-            
+
             status_parts = [status, theme_indicator, lang_indicator, model_indicator]
             status = " | ".join(status_parts)
-            
+
             status_pos = max(2, (width - len(status)) // 2)
             try:
                 color = curses.color_pair(7) if self.state.selection_mode else curses.color_pair(5)
                 stdscr.addstr(height - 1, status_pos, status[:width-4], color | curses.A_BOLD)
-            except:
+            except Exception:
                 attr = curses.A_REVERSE if self.state.selection_mode else curses.A_BOLD
                 stdscr.addstr(height - 1, status_pos, status[:width-4], attr)
-        
+
         if width > 40 and current_text_copy:
             left_margin, text_width = self.calculate_text_margins(right_width)
             # Barres verticales supprimées pour un design plus épuré
-        
+
         stdscr.refresh()
-    
+
     def handle_input(self, stdscr, key):
         """Gère les entrées clavier."""
         height, width = stdscr.getmaxyx()
-        
+
         if self.state.history_mode:
-            if key in (27, ord('h')):
+            if key in (27, ord("h")):
                 self.state.history_mode = False
                 self.state.force_redraw = True
                 return False
-            elif key == curses.KEY_UP:
+            if key == curses.KEY_UP:
                 if self.state.history_cursor > 0:
                     self.state.history_cursor -= 1
                     self.state.force_redraw = True
                 return False
-            elif key == curses.KEY_DOWN:
+            if key == curses.KEY_DOWN:
                 if self.state.history_cursor < len(self.state.full_history) - 1:
                     self.state.history_cursor += 1
                     self.state.force_redraw = True
                 return False
-            elif key in (ord('\n'), ord('\r')):
+            if key in (ord("\n"), ord("\r")):
                 if 0 <= self.state.history_cursor < len(self.state.full_history):
                     selected_subject = self.state.full_history[self.state.history_cursor]
                     if self.state.is_generating:
@@ -594,7 +588,7 @@ class SimpleTUI:
                     return False
             else:
                 return False
-        
+
         if self.state.input_mode:
             result = self.handle_input_char(key)
             if result:
@@ -602,39 +596,39 @@ class SimpleTUI:
                 self.state.history.append(self.state.current_subject)
                 self.load_subject_streaming(result, stdscr)
             return False
-        
-        if key == ord('q'):
+
+        if key == ord("q"):
             if self.state.is_generating:
                 self.state.stop_streaming = True
                 if self.state.streaming_thread:
                     self.state.streaming_thread.join(timeout=1)
             return True
-        elif key == ord('s') and self.state.is_generating:
+        if key == ord("s") and self.state.is_generating:
             self.state.stop_streaming = True
             if self.state.streaming_thread:
                 self.state.streaming_thread.join(timeout=1)
             self.state.is_generating = False
             self.state.force_redraw = True
-        elif key == ord('r') and not self.state.is_generating:
+        elif key == ord("r") and not self.state.is_generating:
             self.load_subject_streaming(self.state.current_subject, stdscr)
-        elif key == ord('h'):
+        elif key == ord("h"):
             self.state.history_mode = not self.state.history_mode
             self.state.force_redraw = True
-        elif key == ord('t'):
+        elif key == ord("t"):
             self.toggle_theme()
-        elif key == ord('l'):
+        elif key == ord("l"):
             self.cycle_language()
-        elif key == ord('m'):
+        elif key == ord("m"):
             self.cycle_model()
-        elif key == ord('i') and not self.state.is_generating:
+        elif key == ord("i") and not self.state.is_generating:
             self.start_input_mode()
-        elif key == ord('b') and self.state.history:
+        elif key == ord("b") and self.state.history:
             prev_subject = self.state.history.pop()
             self.load_subject_streaming(prev_subject, stdscr)
         elif key == curses.KEY_MOUSE:
             try:
                 _, mx, my, _, bstate = curses.getmouse()
-            except:
+            except Exception:
                 bstate = 0
             if bstate & curses.BUTTON1_PRESSED:
                 show_history_panel = width >= 60
@@ -647,7 +641,7 @@ class SimpleTUI:
                     self.adjust_scroll(height)
                     self.state.force_redraw = True
             return False
-        elif key == ord(' '):
+        elif key == ord(" "):
             if not self.state.selection_mode:
                 self.start_selection()
             else:
@@ -659,31 +653,35 @@ class SimpleTUI:
             new_index = self.find_word_above()
             if new_index != -1:
                 self.state.cursor_word_index = new_index
-                if self.state.selection_mode: self.update_selection_end()
+                if self.state.selection_mode:
+                    self.update_selection_end()
                 self.adjust_scroll(height)
                 self.state.force_redraw = True
         elif key == curses.KEY_DOWN:
             new_index = self.find_word_below()
             if new_index != -1:
                 self.state.cursor_word_index = new_index
-                if self.state.selection_mode: self.update_selection_end()
+                if self.state.selection_mode:
+                    self.update_selection_end()
                 self.adjust_scroll(height)
                 self.state.force_redraw = True
         elif key == curses.KEY_LEFT:
             new_index = self.find_word_left()
             if new_index != -1:
                 self.state.cursor_word_index = new_index
-                if self.state.selection_mode: self.update_selection_end()
+                if self.state.selection_mode:
+                    self.update_selection_end()
                 self.adjust_scroll(height)
                 self.state.force_redraw = True
         elif key == curses.KEY_RIGHT:
             new_index = self.find_word_right()
             if new_index != -1:
                 self.state.cursor_word_index = new_index
-                if self.state.selection_mode: self.update_selection_end()
+                if self.state.selection_mode:
+                    self.update_selection_end()
                 self.adjust_scroll(height)
                 self.state.force_redraw = True
-        elif key in (ord('\n'), ord('\r')):
+        elif key in (ord("\n"), ord("\r")):
             if self.state.words:
                 selected_text = self.get_selected_text()
                 if selected_text:
@@ -691,18 +689,18 @@ class SimpleTUI:
                     if self.state.selection_mode:
                         self.clear_selection()
                     self.load_subject_streaming(selected_text, stdscr)
-        
+
         return False
-    
+
     def find_word_above(self) -> int:
         if not self.state.words or self.state.cursor_word_index >= len(self.state.words):
             return -1
-        
+
         _, current_line, current_col = self.state.words[self.state.cursor_word_index]
-        
+
         best_index = -1
-        best_distance = float('inf')
-        
+        best_distance = float("inf")
+
         for i, (_, line, col) in enumerate(self.state.words):
             if line < current_line:
                 distance = abs(col - current_col)
@@ -711,16 +709,16 @@ class SimpleTUI:
                     best_distance = total_distance
                     best_index = i
         return best_index
-    
+
     def find_word_below(self) -> int:
         if not self.state.words or self.state.cursor_word_index >= len(self.state.words):
             return -1
-        
+
         _, current_line, current_col = self.state.words[self.state.cursor_word_index]
-        
+
         best_index = -1
-        best_distance = float('inf')
-        
+        best_distance = float("inf")
+
         for i, (_, line, col) in enumerate(self.state.words):
             if line > current_line:
                 distance = abs(col - current_col)
@@ -733,39 +731,43 @@ class SimpleTUI:
     def find_word_left(self) -> int:
         if not self.state.words or self.state.cursor_word_index >= len(self.state.words):
             return -1
-        
+
         _, current_line, current_col = self.state.words[self.state.cursor_word_index]
-        
+
         best_index = -1
         for i, (_, line, col) in enumerate(self.state.words):
-            if line == current_line and col < current_col:
-                if best_index == -1 or col > self.state.words[best_index][2]:
-                    best_index = i
-        
+            if line == current_line and col < current_col and (
+                best_index == -1 or col > self.state.words[best_index][2]
+            ):
+                best_index = i
+
         if best_index == -1:
             for i, (_, line, col) in enumerate(self.state.words):
-                if line == current_line - 1:
-                    if best_index == -1 or col > self.state.words[best_index][2]:
-                        best_index = i
+                if line == current_line - 1 and (
+                    best_index == -1 or col > self.state.words[best_index][2]
+                ):
+                    best_index = i
         return best_index
-    
+
     def find_word_right(self) -> int:
         if not self.state.words or self.state.cursor_word_index >= len(self.state.words):
             return -1
-        
+
         _, current_line, current_col = self.state.words[self.state.cursor_word_index]
-        
+
         best_index = -1
         for i, (_, line, col) in enumerate(self.state.words):
-            if line == current_line and col > current_col:
-                if best_index == -1 or col < self.state.words[best_index][2]:
-                    best_index = i
-        
+            if line == current_line and col > current_col and (
+                best_index == -1 or col < self.state.words[best_index][2]
+            ):
+                best_index = i
+
         if best_index == -1:
             for i, (_, line, col) in enumerate(self.state.words):
-                if line == current_line + 1:
-                    if best_index == -1 or col < self.state.words[best_index][2]:
-                        best_index = i
+                if line == current_line + 1 and (
+                    best_index == -1 or col < self.state.words[best_index][2]
+                ):
+                    best_index = i
         return best_index
 
     def word_index_at_screen(self, x: int, y: int, term_width: int, term_height: int, left_panel_width: int) -> int:
@@ -776,10 +778,10 @@ class SimpleTUI:
         # --- Logique de calcul de position (miroir de _draw_content) ---
         right_width = term_width - left_panel_width
         content_left_margin, text_width = self.calculate_text_margins(right_width)
-        
+
         _, display_height = self.calculate_content_area(term_height)
         content_start_y = self.calculate_content_area(term_height)[0]
-        
+
         scroll_start_line = self.state.scroll_offset
         # S'assurer d'utiliser les wrapped_lines déjà calculées
         visible_lines = self.state.wrapped_lines[scroll_start_line : scroll_start_line + display_height]
@@ -793,7 +795,7 @@ class SimpleTUI:
             if y == screen_y:
                 clicked_text_line_index = scroll_start_line + i
                 break
-        
+
         if clicked_text_line_index == -1:
             return -1
 
@@ -804,32 +806,14 @@ class SimpleTUI:
 
         # Trouver le mot qui correspond aux coordonnées
         for idx, (word_text, word_line_idx, word_col_start) in enumerate(self.state.words):
-            if word_line_idx == clicked_text_line_index:
-                if word_col_start <= clicked_text_col < word_col_start + len(word_text):
-                    return idx
-        
+            if word_line_idx == clicked_text_line_index and (
+                word_col_start <= clicked_text_col < word_col_start + len(word_text)
+            ):
+                return idx
+
         return -1
 
-    # --- Fin navigation souris ---
-
-    def find_word_right(self) -> int:
-        if not self.state.words or self.state.cursor_word_index >= len(self.state.words):
-            return -1
-        
-        _, current_line, current_col = self.state.words[self.state.cursor_word_index]
-        
-        best_index = -1
-        for i, (_, line, col) in enumerate(self.state.words):
-            if line == current_line and col > current_col:
-                if best_index == -1 or col < self.state.words[best_index][2]:
-                    best_index = i
-        
-        if best_index == -1:
-            for i, (_, line, col) in enumerate(self.state.words):
-                if line == current_line + 1:
-                    if best_index == -1 or col < self.state.words[best_index][2]:
-                        best_index = i
-        return best_index
+        # --- Fin navigation souris ---
 
     def calculate_content_area(self, height):
         header_height = 4
@@ -837,34 +821,35 @@ class SimpleTUI:
         input_height = 2 if self.state.input_mode else 0
         separator_height = 1
         status_height = 1
-        
+
         ui_total = header_height + instructions_height + input_height + separator_height + status_height
         content_start = ui_total - status_height
         content_height = height - ui_total
-        
+
         return content_start, max(1, content_height)
-    
+
     def adjust_scroll(self, height):
-        if not self.state.words: return
-        
+        if not self.state.words:
+            return
+
         word_line = self.state.words[self.state.cursor_word_index][1]
         _, display_height = self.calculate_content_area(height)
-        
+
         if word_line < self.state.scroll_offset:
             self.state.scroll_offset = word_line
         elif word_line >= self.state.scroll_offset + display_height:
             self.state.scroll_offset = word_line - display_height + 1
-    
+
     def load_subject_streaming(self, subject: str, stdscr):
         if self.state.is_generating:
             self.state.stop_streaming = True
             if self.state.streaming_thread and self.state.streaming_thread.is_alive():
                 self.state.streaming_thread.join(timeout=0.5)
-        
+
         with self.state.text_lock:
             previous_text = self.state.current_text if not self.state.current_text.startswith("Génération en cours") else ""
         self.state.subject_texts[self.state.current_subject] = previous_text
-        
+
         if subject not in self.state.full_history:
             self.state.full_history.insert(0, subject)
         self.state.history_cursor = 0
@@ -876,17 +861,17 @@ class SimpleTUI:
         self.state.scroll_offset = 0
         self.state.is_generating = True
         self.state.stop_streaming = False
-        
+
         self.draw_screen(stdscr)
         stdscr.refresh()
-        
+
         self.state.streaming_thread = threading.Thread(
             target=self.generate_fiche_streaming_thread,
             args=(subject, previous_text),
             daemon=True
         )
         self.state.streaming_thread.start()
-    
+
     def run(self, stdscr):
         """Boucle principale de l'interface."""
         curses.curs_set(0)
@@ -896,9 +881,9 @@ class SimpleTUI:
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
             curses.mouseinterval(0)
-        except:
+        except Exception:
             pass
-        
+
         try:
             curses.start_color()
             curses.use_default_colors()
@@ -909,22 +894,22 @@ class SimpleTUI:
             curses.init_pair(5, curses.COLOR_GREEN, curses.COLOR_BLACK)
             curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
             curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
-            stdscr.bkgd(' ', curses.color_pair(1))
-        except:
+            stdscr.bkgd(" ", curses.color_pair(1))
+        except Exception:
             pass
-        
+
         self.load_subject_streaming(self.state.current_subject, stdscr)
-        
+
         running = True
         while running:
             self.draw_screen(stdscr)
-            
+
             key = stdscr.getch()
             if key != -1:
                 should_quit = self.handle_input(stdscr, key)
                 if should_quit:
                     running = False
-        
+
         if self.state.is_generating:
             self.state.stop_streaming = True
             if self.state.streaming_thread:

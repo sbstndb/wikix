@@ -1,6 +1,6 @@
 """Configuration centrale pour Wikix.
 
-Ce module contient les chemins, les constantes et les templates 
+Ce module contient les chemins, les constantes et les templates
 utilisés à travers l'application pour éviter la duplication.
 """
 from pathlib import Path

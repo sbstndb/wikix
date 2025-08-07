@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
+from rich.markdown import Markdown
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input
 from textual.containers import Horizontal
 from textual.reactive import reactive
-from rich.markdown import Markdown
+from textual.widgets import Footer, Header, Input, Static
 
+from wikix.core.config import GENERATED_DIR, TEMPLATE_CONTEXT, TEMPLATE_GENERAL
 from wikix.core.llm import generate_fiche, generate_fiche_with_context
-from wikix.core.config import GENERATED_DIR, TEMPLATE_GENERAL, TEMPLATE_CONTEXT
 
 
 class WikiPane(Static):
