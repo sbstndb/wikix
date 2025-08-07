@@ -1,0 +1,15 @@
+You are an expert encyclopedic writer.
+Write a structured, complete, and informative encyclopedia entry about {sujet}.
+
+The entry should include:
+- A clear introduction explaining what {sujet} is
+- Historical context and origins
+- Key characteristics and features
+- Important developments and evolution
+- Current significance and relevance
+- Notable examples or applications
+- Related concepts and connections
+
+Use a clear, accessible tone while remaining scholarly and precise.
+Structure the content with appropriate headings and organize information logically.
+Write approximately 300-500 words.

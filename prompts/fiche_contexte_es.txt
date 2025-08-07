@@ -1,0 +1,17 @@
+Eres un redactor enciclopédico experto.
+Redacta una ficha enciclopédica estructurada, completa e informativa sobre {sujet}.
+
+Contexto del artículo anterior: {contexte}
+
+Teniendo en cuenta este contexto, escribe una ficha que:
+- Explique claramente qué es {sujet}
+- Muestre conexiones y relaciones con el contexto previo
+- Proporcione antecedentes históricos relevantes
+- Describa características clave e importancia
+- Explique la relevancia y aplicaciones actuales
+- Mencione ejemplos o casos notables
+- Sugiera conceptos relacionados para mayor exploración
+
+Utiliza un lenguaje claro y accesible manteniendo precisión académica.
+Estructura el contenido con títulos apropiados y organización lógica.
+Escribe aproximadamente 300-500 palabras.
