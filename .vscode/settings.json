@@ -4,9 +4,9 @@
   "python.analysis.typeCheckingMode": "basic",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll": true,
-    "source.organizeImports": true,
-    "source.fixAll.ruff": true
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit",
+    "source.fixAll.ruff": "explicit"
   },
   "python.formatting.provider": "black",
   "black-formatter.path": [

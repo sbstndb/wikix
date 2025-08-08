@@ -1,4 +1,12 @@
-"""Interface TUI simple basée sur curses pour navigation dans le texte."""
+"""Interface TUI simple basée sur curses pour navigation dans le texte.
+
+Améliorations niveau senior:
+- Regex de mots robuste (accents, apostrophes typographiques, tirets, chiffres)
+- Pagination clavier (PgUp/PgDn, Home/End, g/G) et molette souris
+- Compatibilité provider/modèle clarifiée
+- Constantes d'UI centralisées; robustesse écriture de fichier
+- Détection fiable de l'état « en génération »
+"""
 from __future__ import annotations
 
 import contextlib
@@ -13,6 +21,111 @@ from wikix.core.config import (
     get_template_for_lang,
 )
 from wikix.core.llm import generate_fiche_stream, generate_fiche_with_context_stream
+
+
+# --- Constantes UI ---
+HEADER_HEIGHT = 4
+TITLE_TO_CONTENT_PADDING = 3  # lignes vides après le titre de la fiche avant le texte
+HEADER_TOP_PADDING = 2           # lignes vides au-dessus du logo WIKIX
+HEADER_BETWEEN_PADDING = 2       # lignes vides entre WIKIX et le sujet encadré
+INSTRUCTIONS_HEIGHT = 1
+SEPARATOR_HEIGHT = 1
+STATUS_HEIGHT = 1
+
+# Préfixe de message de génération (utilisé pour éviter de traiter ce placeholder comme un vrai contexte)
+GENERATING_MSG_PREFIX = "🔄 Génération de '"
+
+# --- Regex & wrapping ---
+# Mots: lettres (ASCII + étendu), chiffres, avec apostrophes/tirets internes (ex: aujourd’hui, Jean-Pierre, 4G)
+WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:[’'\-][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)*")
+
+# Défilement via molette
+SCROLL_WHEEL_LINES = 3
+
+
+# --- Mesures d'affichage robustes (emoji, accents) ---
+try:
+    from wcwidth import wcswidth as _wcswidth
+except ImportError:  # pragma: no cover - fallback si wcwidth non dispo
+    _wcswidth = None
+
+
+def _display_width(text: str) -> int:
+    """Retourne la largeur d'affichage (colonnes) d'une chaîne.
+    Utilise wcwidth si disponible, sinon longueur naïve.
+    """
+    if _wcswidth is None:
+        return len(text)
+    width = _wcswidth(text)
+    if width is not None and width >= 0:
+        return width
+    # Fallback caractère par caractère
+    total = 0
+    for ch in text:
+        w = _wcswidth(ch) if _wcswidth else 1
+        if w is None or w < 0:
+            w = 1
+        total += w
+    return total
+
+
+def _truncate_display(text: str, max_columns: int) -> str:
+    """Tronque la chaîne pour ne pas dépasser max_columns en colonnes d'affichage."""
+    if max_columns <= 0:
+        return ""
+    if _wcswidth is None:
+        return text[: max(0, max_columns)]
+    acc = 0
+    out_chars: list[str] = []
+    for ch in text:
+        w = _wcswidth(ch)
+        if w is None or w < 0:
+            w = 1
+        if acc + w > max_columns:
+            break
+        out_chars.append(ch)
+        acc += w
+    return "".join(out_chars)
+
+
+def _wrap_text_display(text: str, max_columns: int) -> list[str]:
+    """Découpe le texte en lignes n'excédant pas max_columns colonnes d'affichage.
+    Essaye de couper par mots; en cas de mot trop long, coupe par caractères.
+    """
+    if max_columns <= 0:
+        return [""]
+    words = text.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}" if current else word
+        if _display_width(candidate) <= max_columns:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        # Mot trop long: couper par caractères
+        remaining = word
+        while remaining:
+            take = _truncate_display(remaining, max_columns)
+            if not take:
+                break
+            lines.append(take)
+            remaining = remaining[len(take):]
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+# ASCII art multi-lignes pour "wikix"
+WIKIX_ASCII_ART: list[str] = [
+    "W   W  III  K  K  III  X   X",
+    "W   W   I   K K    I    X X ",
+    "W W W   I   KK     I     X  ",
+    "WW WW   I   K K    I    X X ",
+    "W   W  III  K  K  III  X   X",
+]
 
 
 class TUIState:
@@ -54,18 +167,34 @@ class TUIState:
         self.input_prompt: str = "Entrez un sujet :"
 
         self.current_model: str = "gpt-4o-mini"
+        self.current_provider: str | None = None
+        # Modèles supportés
         self.available_models: dict = {
             "gpt-4o-mini": {"name": "4o-mini", "symbol": "🔹", "features": "standard"},
             "gpt-4o": {"name": "4o", "symbol": "🔷", "features": "standard"},
-            "gemini-2.5-flash": {"name": "gemini-flash", "symbol": "⚡️", "features": "standard"},
-            "gemini-2.5-flash-light": {"name": "gemini-flash-light", "symbol": "💡", "features": "standard"},
-            "gemini-2.5-pro": {"name": "gemini-pro", "symbol": "✨", "features": "standard"},
-            "llama3.1-8b": {"name": "llama-8b", "symbol": "🦙", "features": "ultra-fast"},
-            "llama3.1-70b": {"name": "llama-70b", "symbol": "🚀", "features": "ultra-fast"},
-            "qwen-3-32b": {"name": "qwen-32b", "symbol": "💻", "features": "coding"},
             "o3-mini": {"name": "o3-mini", "symbol": "🟦", "features": "no_temp"},
             "o4-mini": {"name": "o4-mini", "symbol": "🟪", "features": "future"},
-            "openai/gpt-oss-120b": {"name": "gpt-oss-120b", "symbol": "🧠", "features": "cerebras"}
+            "gemini-2.5-flash": {"name": "gemini-2.5-flash", "symbol": "⚡️", "features": "standard"},
+            "gemini-2.5-flash-lite": {"name": "gemini-2.5-lite", "symbol": "💡", "features": "fast"},
+            "gemini-2.5-pro": {"name": "gemini-2.5-pro", "symbol": "✨", "features": "advanced"},
+            "llama3.1-8b": {"name": "llama-8b", "symbol": "🦙", "features": "ultra-fast"},
+            "llama3.1-70b": {"name": "llama-70b", "symbol": "🚀", "features": "ultra-fast"},
+            # OpenRouter: 3 modèles populaires (slugs valides OpenRouter)
+            "anthropic/claude-3.5-sonnet": {"name": "claude-3.5-sonnet", "symbol": "🧠", "features": "reasoning"},
+            "openai/gpt-4o": {"name": "gpt-4o (OR)", "symbol": "🔷", "features": "popular"},
+            "google/gemini-2.5-flash": {"name": "gemini-2.5-flash (OR)", "symbol": "⚡️", "features": "popular"},
+        }
+        # Filtrage par provider
+        self.provider_models: dict = {
+            None: list(self.available_models.keys()),
+            "openai": ["gpt-4o-mini", "gpt-4o", "o3-mini", "o4-mini"],
+            "gemini": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
+            "cerebras": ["llama3.1-8b", "llama3.1-70b"],
+            "openrouter": [
+                "anthropic/claude-3.5-sonnet",
+                "openai/gpt-4o",
+                "google/gemini-2.5-flash",
+            ],
         }
 
         self.current_theme: str = "dark"
@@ -102,36 +231,66 @@ class TUIState:
             }
         }
 
+        # Nombre de lignes physiques utilisées pour les instructions (centrage plein écran)
+        self.instructions_lines_count: int = 1
+
 
 class SimpleTUI:
     def __init__(self, initial_subject: str = "Wikipédia"):
         self.state = TUIState(initial_subject)
+        # Hauteurs dynamiques mémorisées
+        self._last_header_height: int = HEADER_HEIGHT
 
-    def _draw_header(self, stdscr, width):
-        """Dessine l'en-tête avec logo et sujet encadré."""
-        title_line1 = "WIKIX"
+    def _draw_header(self, stdscr, screen_width, start_y: int):
+        """Dessine l'en-tête ASCII art 'WIKIX' + sujet encadré à partir de start_y, centrés plein écran.
+        Retourne la hauteur réellement dessinée (nb de lignes).
+        """
+        def centered_x(s: str) -> int:
+            return max(0, (screen_width - _display_width(s)) // 2)
+
+        current_y = start_y
+        # Espace au-dessus du logo WIKIX
+        for _ in range(HEADER_TOP_PADDING):
+            with contextlib.suppress(curses.error):
+                stdscr.addstr(current_y, 0, "")
+            current_y += 1
+        # 1) ASCII ART WIKIX
+        for line in WIKIX_ASCII_ART:
+            draw_line = _truncate_display(line, max_columns=screen_width)
+            try:
+                stdscr.addstr(current_y, centered_x(draw_line), draw_line, curses.color_pair(1) | curses.A_BOLD)
+            except curses.error:
+                with contextlib.suppress(curses.error):
+                    stdscr.addstr(current_y, centered_x(draw_line), draw_line, curses.A_BOLD)
+            current_y += 1
+
+        # Espace entre le logo et le sujet encadré
+        for _ in range(HEADER_BETWEEN_PADDING):
+            with contextlib.suppress(curses.error):
+                stdscr.addstr(current_y, 0, "")
+            current_y += 1
+
+        # 2) Sujet encadré
         subject = self.state.current_subject.upper()
-
-        # Ligne du logo
-        try:
-            stdscr.addstr(0, (width - len(title_line1)) // 2, title_line1, curses.color_pair(1) | curses.A_BOLD)
-        except Exception:
-            stdscr.addstr(0, (width - len(title_line1)) // 2, title_line1, curses.A_BOLD)
-
-        # Construction de l'encadrement du sujet
         border_top = "┌" + "─" * (len(subject) + 2) + "┐"
         border_mid = f"│ {subject} │"
         border_bot = "└" + "─" * (len(subject) + 2) + "┘"
-
-        lines = [border_top, border_mid, border_bot]
-        for idx, line in enumerate(lines, start=1):
-            x = (width - len(line)) // 2
+        for line in (border_top, border_mid, border_bot):
+            display_line = _truncate_display(line, max_columns=screen_width)
             try:
-                stdscr.addstr(idx, x, line, curses.color_pair(1) | curses.A_BOLD)
-            except Exception:
-                stdscr.addstr(idx, x, line, curses.A_BOLD)
+                stdscr.addstr(current_y, centered_x(display_line), display_line, curses.color_pair(1) | curses.A_BOLD)
+            except curses.error:
+                with contextlib.suppress(curses.error):
+                    stdscr.addstr(current_y, centered_x(display_line), display_line, curses.A_BOLD)
+            current_y += 1
 
-        return 4
+        # Padding supplémentaire entre le titre de la fiche et le texte
+        for _ in range(TITLE_TO_CONTENT_PADDING):
+            with contextlib.suppress(curses.error):
+                stdscr.addstr(current_y, 0, "")
+            current_y += 1
+
+        return current_y - start_y
 
     def _draw_history_panel(self, stdscr, height, separator_line, left_panel_width):
         """Dessine le panneau de l'historique."""
@@ -142,7 +301,7 @@ class SimpleTUI:
         title = "Historique"
         try:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.color_pair(3) | curses.A_BOLD)
-        except Exception:
+        except curses.error:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.A_BOLD)
 
         visible_items = self.state.full_history
@@ -168,31 +327,44 @@ class SimpleTUI:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(7))
                 else:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(1))
-            except Exception:
+            except curses.error:
                 attr = curses.A_REVERSE if is_selected else (curses.A_BOLD if is_current else curses.A_NORMAL)
                 stdscr.addstr(line_no, 1, display_text, attr)
 
-    def _draw_content(self, stdscr, height, right_width, separator_line, left_panel_width, current_text_copy):
+    def _draw_content(self, stdscr, height, screen_width, separator_line, left_panel_width, current_text_copy):
         """Dessine le contenu principal de la fiche en itérant sur les mots."""
-        # Les calculs se basent sur la 'right_width' (zone de contenu)
-        content_left_margin, text_width = self.calculate_text_margins(right_width)
+        # Les calculs se basent sur la largeur totale de l'écran et tiennent compte du panneau historique
+        content_left_margin, text_width = self.calculate_text_margins(screen_width, left_panel_width)
 
         words, wrapped_lines = self.extract_words(current_text_copy, text_width)
         self.state.words = words
         self.state.wrapped_lines = wrapped_lines
+        # Assurer que le défilement reste dans les bornes
+        # Désactiver totalement l'auto-scroll pour éviter les sauts quand on appuie une touche
+        # (le scroll ne change que via input explicite)
 
         _, display_height = self.calculate_content_area(height)
         content_start_y = separator_line + 1
-        scroll_start_line = self.state.scroll_offset
+        # Pendant le streaming, ancrer en haut; sinon, respecter l'offset utilisateur
+        scroll_start_line = 0 if self.state.is_generating else self.state.scroll_offset
 
         visible_lines = wrapped_lines[scroll_start_line : scroll_start_line + display_height]
-        vertical_offset = max(0, (display_height - len(visible_lines)) // 2)
+        # Toujours ancrer le texte en haut de la zone de contenu (pas de centrage vertical)
+        vertical_offset = 0
 
         # Dessiner le texte de fond
         for i, line_text in enumerate(visible_lines):
             screen_y = i + content_start_y + vertical_offset
-            screen_x = left_panel_width + content_left_margin
-            stdscr.addstr(screen_y, screen_x, line_text, curses.color_pair(1))
+            screen_x = content_left_margin
+            # Éviter d'écrire sous le panneau historique (clipping à gauche)
+            draw_x = max(screen_x, left_panel_width)
+            if draw_x >= screen_width:
+                continue
+            clip_start = max(0, draw_x - screen_x)
+            max_cols = max(0, screen_width - draw_x)
+            visible_text = line_text[clip_start: clip_start + max_cols]
+            with contextlib.suppress(curses.error):
+                stdscr.addstr(screen_y, draw_x, visible_text, curses.color_pair(1))
 
         # Déterminer la plage de sélection
         selection_range = set()
@@ -202,30 +374,52 @@ class SimpleTUI:
             selection_range = set(range(start_idx, end_idx + 1))
 
         # Redessiner les mots avec un style spécial
-        for i, (text, line_idx, col_start) in enumerate(self.state.words):
-            if scroll_start_line <= line_idx < scroll_start_line + display_height:
-                style = None
-                if i == self.state.cursor_word_index:
-                    style = curses.color_pair(2)
-                elif i in selection_range:
-                    style = curses.color_pair(7) | curses.A_BOLD
+        # Autoriser la surbrillance pendant le streaming, mais pas pendant le placeholder "Génération de ..."
+        placeholder_active = current_text_copy.startswith(GENERATING_MSG_PREFIX)
+        if not placeholder_active:
+            for i, (text, line_idx, col_start) in enumerate(self.state.words):
+                if scroll_start_line <= line_idx < scroll_start_line + display_height:
+                    style = None
+                    if i == self.state.cursor_word_index:
+                        style = curses.color_pair(2)
+                    elif i in selection_range:
+                        style = curses.color_pair(7) | curses.A_BOLD
 
-                if style:
-                    screen_y = (line_idx - scroll_start_line) + content_start_y + vertical_offset
-                    screen_x = left_panel_width + content_left_margin + col_start
-                    with contextlib.suppress(curses.error):
-                        stdscr.addstr(screen_y, screen_x, text, style)
+                    if style:
+                        screen_y = (line_idx - scroll_start_line) + content_start_y + vertical_offset
+                        base_x = content_left_margin + col_start
+                        # Clipper si le mot commence sous le panneau historique
+                        draw_x = max(base_x, left_panel_width)
+                        if draw_x < screen_width:
+                            clip_start = max(0, draw_x - base_x)
+                            max_cols = max(0, screen_width - draw_x)
+                            visible_text = text[clip_start: clip_start + max_cols]
+                            if visible_text:
+                                with contextlib.suppress(curses.error):
+                                    stdscr.addstr(screen_y, draw_x, visible_text, style)
 
-    def calculate_text_margins(self, width: int) -> tuple[int, int]:
-        """Calcule des marges équilibrées et une largeur de texte maximale raisonnable."""
+    def calculate_text_margins(self, width: int, left_panel_width: int = 0) -> tuple[int, int]:
+        """Calcule des marges équilibrées et une largeur de texte maximale raisonnable.
+
+        Si un panneau d'historique occupe la gauche (left_panel_width > 0), on réduit
+        la largeur de texte pour que le bloc reste CENTRÉ sur l'écran tout en évitant
+        de passer sous le panneau.
+        """
         # Largeur de texte cible (80 colonnes si possible)
         max_text_width = 80
-        text_width = min(max_text_width, max(20, width - 8))
-        # Si le terminal est très étroit, on utilise tout l'espace disponible moins 4 col.
-        if text_width > width - 8:
-            text_width = width - 8
-        # Marges gauche/droite identiques
-        left_margin = max(4, (width - text_width) // 2)
+        # Limite dure: garder 4 colonnes de marge de chaque côté
+        hard_limit = max(20, width - 8)
+        text_width = min(max_text_width, hard_limit)
+
+        if left_panel_width > 0:
+            # Pour rester centré sur l'écran sans chevaucher le panneau gauche, il faut:
+            # start_x = (width - text_width) // 2 >= left_panel_width
+            #  => text_width <= width - 2*left_panel_width
+            max_centerable = max(10, width - 2 * left_panel_width)
+            text_width = min(text_width, max_centerable)
+
+        # Marges gauche/droite identiques (centrage global sur l'écran)
+        left_margin = max(0, (width - text_width) // 2)
         return left_margin, text_width
 
     def extract_words(self, text: str, text_width: int) -> tuple[list[tuple[str, int, int]], list[str]]:
@@ -243,7 +437,7 @@ class SimpleTUI:
                 wrapped_lines.append("")
 
         for line_num, line in enumerate(wrapped_lines):
-            for match in re.finditer(r"\b[A-Za-zÀ-ÿ]+\b", line):
+            for match in WORD_PATTERN.finditer(line):
                 word = match.group()
                 # La position (colonne) est relative au début de la ligne wrappée
                 words.append((word, line_num, match.start()))
@@ -302,12 +496,32 @@ class SimpleTUI:
         self.state.current_language = lang_keys[next_index]
         self.state.force_redraw = True
 
+    def get_models_for_current_provider(self) -> list[str]:
+        return self.state.provider_models.get(self.state.current_provider, list(self.state.available_models.keys()))
+
+    def _reconcile_model_with_provider(self):
+        allowed = self.get_models_for_current_provider()
+        if self.state.current_model not in allowed:
+            self.state.current_model = allowed[0]
+
     def cycle_model(self):
-        """Cycle entre les modèles disponibles."""
-        model_keys = list(self.state.available_models.keys())
-        current_index = model_keys.index(self.state.current_model)
-        next_index = (current_index + 1) % len(model_keys)
-        self.state.current_model = model_keys[next_index]
+        """Cycle entre les modèles disponibles selon le provider courant."""
+        allowed = self.get_models_for_current_provider()
+        if self.state.current_model not in allowed:
+            self.state.current_model = allowed[0]
+            self.state.force_redraw = True
+            return
+        current_index = allowed.index(self.state.current_model)
+        next_index = (current_index + 1) % len(allowed)
+        self.state.current_model = allowed[next_index]
+        self.state.force_redraw = True
+
+    def cycle_provider(self):
+        """Cycle entre les providers disponibles (None -> openai -> openrouter -> gemini -> cerebras -> None)."""
+        providers = [None, "openai", "openrouter", "gemini", "cerebras"]
+        idx = providers.index(self.state.current_provider) if self.state.current_provider in providers else 0
+        self.state.current_provider = providers[(idx + 1) % len(providers)]
+        self._reconcile_model_with_provider()
         self.state.force_redraw = True
 
     def start_input_mode(self):
@@ -370,7 +584,7 @@ class SimpleTUI:
             else:
                 curses.init_pair(7, theme["selection"], theme["bg"])
 
-        except Exception:
+        except curses.error:
             # Fallback en cas d'erreur
             curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
             curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
@@ -391,30 +605,48 @@ class SimpleTUI:
             general_template, context_template = self.get_templates_for_language()
 
             if previous_text and subject != self.state.current_subject:
-                stream_gen = generate_fiche_with_context_stream(subject, previous_text, context_template, model=self.state.current_model)
+                stream_gen = generate_fiche_with_context_stream(
+                    subject,
+                    previous_text,
+                    context_template,
+                    model=self.state.current_model,
+                    provider=self.state.current_provider,
+                )
             else:
-                stream_gen = generate_fiche_stream(subject, general_template, model=self.state.current_model)
+                stream_gen = generate_fiche_stream(
+                    subject,
+                    general_template,
+                    model=self.state.current_model,
+                    provider=self.state.current_provider,
+                )
 
             full_content = ""
             for chunk in stream_gen:
                 if self.state.stop_streaming:
                     break
+                # Ajouter le chunk, mais afficher sans déclencher de scroll automatique
                 full_content += chunk
                 with self.state.text_lock:
                     self.state.current_text = full_content
                     self.state.force_redraw = True
-                time.sleep(0.08)
+                time.sleep(0.06)
 
             if not self.state.stop_streaming:
                 output_path = GENERATED_DIR / f"{subject.lower().replace(' ', '_')}.md"
-                output_path.write_text(full_content, encoding="utf-8")
+                # Écriture robuste: s'assurer que le dossier existe et écrire de façon atomique
+                GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+                tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+                tmp_path.write_text(full_content, encoding="utf-8")
+                tmp_path.replace(output_path)
 
-            self.state.subject_texts[self.state.current_subject] = full_content
-            if self.state.current_subject in self.state.full_history:
-                self.state.full_history.remove(self.state.current_subject)
-            self.state.full_history.insert(0, self.state.current_subject)
+            # Sauvegarder le texte pour le sujet généré (pas forcément le sujet courant si l'utilisateur a navigué)
+            with self.state.text_lock:
+                self.state.subject_texts[subject] = full_content
+                if subject in self.state.full_history:
+                    self.state.full_history.remove(subject)
+                self.state.full_history.insert(0, subject)
             self.state.is_generating = False
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError, ImportError) as e:
             with self.state.text_lock:
                 self.state.current_text = f"Erreur lors de la génération : {str(e)}"
             self.state.is_generating = False
@@ -437,15 +669,11 @@ class SimpleTUI:
 
         show_history_panel = width >= 60
         left_panel_width = 24 if show_history_panel else 0
-        right_width = width - left_panel_width
 
         self.init_colors()
 
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(curses.error):
             stdscr.bkgd(" ", curses.color_pair(1))
-
-        header_height = self._draw_header(stdscr, width)
-
 
         theme_map = {
             "dark": "🌙 Sombre", "light": "☀️ Clair", "ocean": "🌊 Océan",
@@ -459,48 +687,66 @@ class SimpleTUI:
         elif self.state.input_mode:
             instructions = "✏️ Mode saisie | Tapez votre sujet puis Entrée | Esc: Annuler"
         elif self.state.is_generating and self.state.selection_mode:
-            instructions = f"🔄📝 Génération + Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 's': Arrêter"
+            instructions = f"🔄📝 Génération + Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Arrêter"
         elif self.state.is_generating:
-            instructions = f"🔄 En génération | ↑↓←→: Naviguer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 's': Arrêter"
+            instructions = f"🔄 En génération | ↑↓←→: Naviguer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Arrêter"
         elif self.state.selection_mode:
-            instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | Esc: Annuler"
+            instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | Esc: Annuler"
         else:
-            instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 'r': Régénérer | 'i': Saisie | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'h': Hist. | 'b': Retour | 'q': Quitter"
+            instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 'r': Régénérer | 'i': Saisie | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 'h': Hist. | 'b': Retour | 'q': Quitter"
 
-        instructions_line = header_height
-        display_instr = instructions[:max(0, width - 4)]
-        x_instr = max(0, (width - len(display_instr)) // 2)
+        # Afficher le panneau d'infos (instructions) TOUT EN HAUT
+        instructions_line = 0
+        # Instructions sur UNE ligne fixe, centrées plein écran (pas de wrap pour éviter les sauts de layout)
+        display_instr = _truncate_display(instructions, max_columns=max(0, width - 2))
+        x_instr = max(0, (width - _display_width(display_instr)) // 2)
         try:
             stdscr.addstr(instructions_line, x_instr, display_instr, curses.color_pair(4))
-        except Exception:
+        except curses.error:
             stdscr.addstr(instructions_line, x_instr, display_instr, curses.A_DIM)
+        # Hauteur d'instructions fixe à 1 pour stabilité du layout
+        self.state.instructions_lines_count = 1
 
-        input_line = instructions_line + 1
+        # Dessiner ensuite l'en-tête ASCII art sous les instructions
+        header_start_y = instructions_line + self.state.instructions_lines_count
+        header_height = self._draw_header(stdscr, width, header_start_y)
+        # Mémoriser la hauteur du header pour calcul de zone contenu
+        self._last_header_height = header_height
+
+        input_line = header_start_y + header_height
         if self.state.input_mode:
             prompt_text = f"{self.state.input_prompt} {self.state.input_text}"
-            cursor_indicator = "█" if len(self.state.input_text) % 2 == 0 else " "
+            # Pas d'indicateur clignotant pendant la génération, pour éviter l'illusion de sélection
+            cursor_indicator = " " if self.state.is_generating else ("█" if len(self.state.input_text) % 2 == 0 else " ")
             display_text = f"{prompt_text}{cursor_indicator}"
+            # Centrage sur l'écran pour l'invite, wcwidth-safe
+            disp = _truncate_display(display_text, max_columns=max(0, width - 2))
+            x_input = max(0, (width - _display_width(disp)) // 2)
             try:
-                stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, curses.color_pair(5) | curses.A_BOLD)
-            except Exception:
-                stdscr.addstr(input_line, (width - len(display_text)) // 2, display_text, curses.A_BOLD)
+                stdscr.addstr(input_line, x_input, disp, curses.color_pair(5) | curses.A_BOLD)
+            except curses.error:
+                with contextlib.suppress(curses.error):
+                    stdscr.addstr(input_line, x_input, disp, curses.A_BOLD)
             input_line += 2
 
         separator_line = input_line
         # Séparateur horizontal retiré pour un design plus épuré
         try:
             stdscr.addstr(separator_line, 0, " " * width, curses.color_pair(6))
-        except Exception:
+        except curses.error:
             stdscr.addstr(separator_line, 0, " " * width)
 
         if show_history_panel:
             self._draw_history_panel(stdscr, height, separator_line, left_panel_width)
 
         if current_text_copy:
-            self._draw_content(stdscr, height, right_width, separator_line, left_panel_width, current_text_copy)
+            self._draw_content(stdscr, height, width, separator_line, left_panel_width, current_text_copy)
         else:
             msg = "Génération de la fiche en cours..."
-            stdscr.addstr(height // 2, (width - len(msg)) // 2, msg)
+            disp_msg = _truncate_display(msg, max_columns=max(0, width - 2))
+            x_msg = max(0, (width - _display_width(disp_msg)) // 2)
+            with contextlib.suppress(curses.error):
+                stdscr.addstr(height // 2, x_msg, disp_msg)
 
         if self.state.words:
             if self.state.selection_mode and self.state.selection_start != -1 and self.state.selection_end != -1:
@@ -515,6 +761,7 @@ class SimpleTUI:
             theme_indicator = "🌙" if self.state.current_theme == "dark" else "☀️"
             lang_indicator = self.state.languages[self.state.current_language]["flag"]
             model_indicator = f"{self.state.available_models[self.state.current_model]['symbol']}{self.state.available_models[self.state.current_model]['name']}"
+            provider_indicator = f"🏷️ {self.state.current_provider}" if self.state.current_provider else "🏷️ auto"
 
             if current_text_copy:
                 total_lines = len(self.state.wrapped_lines)
@@ -526,19 +773,23 @@ class SimpleTUI:
                     scroll_info = f"({visible_start}-{visible_end}/{total_lines})"
                     status = f"{status} | {scroll_info}"
 
-            status_parts = [status, theme_indicator, lang_indicator, model_indicator]
+            status_parts = [status, theme_indicator, lang_indicator, model_indicator, provider_indicator]
             status = " | ".join(status_parts)
 
-            status_pos = max(2, (width - len(status)) // 2)
+            # Centrer la barre de statut sur la même zone de texte que le contenu
+            # Centrer le statut sur toute la largeur écran (wcwidth-safe)
+            status = _truncate_display(status, max_columns=max(0, width - 2))
+            status_pos = max(0, (width - _display_width(status)) // 2)
             try:
                 color = curses.color_pair(7) if self.state.selection_mode else curses.color_pair(5)
-                stdscr.addstr(height - 1, status_pos, status[:width-4], color | curses.A_BOLD)
-            except Exception:
+                stdscr.addstr(height - 1, status_pos, status, color | curses.A_BOLD)
+            except curses.error:
                 attr = curses.A_REVERSE if self.state.selection_mode else curses.A_BOLD
-                stdscr.addstr(height - 1, status_pos, status[:width-4], attr)
+                stdscr.addstr(height - 1, status_pos, status, attr)
 
         if width > 40 and current_text_copy:
-            left_margin, text_width = self.calculate_text_margins(right_width)
+            # Recalcule des marges (sans variables inutilisées)
+            _left_margin, _text_width = self.calculate_text_margins(width, left_panel_width)
             # Barres verticales supprimées pour un design plus épuré
 
         stdscr.refresh()
@@ -620,6 +871,8 @@ class SimpleTUI:
             self.cycle_language()
         elif key == ord("m"):
             self.cycle_model()
+        elif key == ord("p"):
+            self.cycle_provider()
         elif key == ord("i") and not self.state.is_generating:
             self.start_input_mode()
         elif key == ord("b") and self.state.history:
@@ -628,12 +881,19 @@ class SimpleTUI:
         elif key == curses.KEY_MOUSE:
             try:
                 _, mx, my, _, bstate = curses.getmouse()
-            except Exception:
+            except curses.error:
                 bstate = 0
+            # Molette bas/haut
+            if bstate & getattr(curses, "BUTTON5_PRESSED", 0):
+                self.scroll_by_lines(SCROLL_WHEEL_LINES, height)
+                self.state.force_redraw = True
+                return False
+            if bstate & getattr(curses, "BUTTON4_PRESSED", 0):
+                self.scroll_by_lines(-SCROLL_WHEEL_LINES, height)
+                self.state.force_redraw = True
+                return False
             if bstate & curses.BUTTON1_PRESSED:
-                show_history_panel = width >= 60
-                left_panel_width = 24 if show_history_panel else 0
-                word_idx = self.word_index_at_screen(mx, my, width, height, left_panel_width)
+                word_idx = self.word_index_at_screen(mx, my, width, height)
                 if word_idx != -1:
                     self.state.cursor_word_index = word_idx
                     if self.state.selection_mode:
@@ -642,6 +902,9 @@ class SimpleTUI:
                     self.state.force_redraw = True
             return False
         elif key == ord(" "):
+            # Autoriser la sélection pendant le streaming après le placeholder initial
+            if self.state.is_generating and self.state.current_text.startswith(GENERATING_MSG_PREFIX):
+                return False
             if not self.state.selection_mode:
                 self.start_selection()
             else:
@@ -681,7 +944,22 @@ class SimpleTUI:
                     self.update_selection_end()
                 self.adjust_scroll(height)
                 self.state.force_redraw = True
+        elif key == curses.KEY_NPAGE:
+            self.scroll_page_down(height)
+            self.state.force_redraw = True
+        elif key == curses.KEY_PPAGE:
+            self.scroll_page_up(height)
+            self.state.force_redraw = True
+        elif key == curses.KEY_HOME or key == ord("g"):
+            self.scroll_to_top()
+            self.state.force_redraw = True
+        elif key == curses.KEY_END or key == ord("G"):
+            self.scroll_to_bottom(height)
+            self.state.force_redraw = True
         elif key in (ord("\n"), ord("\r")):
+            # Pendant le streaming: autoriser Entrée si on n'est plus sur le placeholder initial
+            if self.state.is_generating and self.state.current_text.startswith(GENERATING_MSG_PREFIX):
+                return False
             if self.state.words:
                 selected_text = self.get_selected_text()
                 if selected_text:
@@ -770,14 +1048,16 @@ class SimpleTUI:
                     best_index = i
         return best_index
 
-    def word_index_at_screen(self, x: int, y: int, term_width: int, term_height: int, left_panel_width: int) -> int:
+    def word_index_at_screen(self, x: int, y: int, term_width: int, term_height: int) -> int:
         """Retourne l'index du mot situé aux coordonnées écran (x,y) ou -1."""
         if not self.state.words or not self.state.wrapped_lines:
             return -1
 
         # --- Logique de calcul de position (miroir de _draw_content) ---
-        right_width = term_width - left_panel_width
-        content_left_margin, text_width = self.calculate_text_margins(right_width)
+        # Centrage global: basé sur la largeur totale (on estime le panneau gauche s'il existe)
+        # On reproduit la règle used dans draw_screen: left_panel si width>=60
+        simulated_left_panel = 24 if term_width >= 60 else 0
+        content_left_margin, _text_width = self.calculate_text_margins(term_width, simulated_left_panel)
 
         _, display_height = self.calculate_content_area(term_height)
         content_start_y = self.calculate_content_area(term_height)[0]
@@ -800,7 +1080,7 @@ class SimpleTUI:
             return -1
 
         # Déterminer la colonne de texte cliquée
-        clicked_text_col = x - left_panel_width - content_left_margin
+        clicked_text_col = x - content_left_margin
         if clicked_text_col < 0:
             return -1
 
@@ -816,11 +1096,12 @@ class SimpleTUI:
         # --- Fin navigation souris ---
 
     def calculate_content_area(self, height):
-        header_height = 4
-        instructions_height = 1
+        # Calcule la zone de contenu en tenant compte des hauteurs dynamiques (instructions + header)
+        header_height = getattr(self, "_last_header_height", HEADER_HEIGHT)
+        instructions_height = max(INSTRUCTIONS_HEIGHT, getattr(self.state, "instructions_lines_count", 1))
         input_height = 2 if self.state.input_mode else 0
-        separator_height = 1
-        status_height = 1
+        separator_height = SEPARATOR_HEIGHT
+        status_height = STATUS_HEIGHT
 
         ui_total = header_height + instructions_height + input_height + separator_height + status_height
         content_start = ui_total - status_height
@@ -840,6 +1121,38 @@ class SimpleTUI:
         elif word_line >= self.state.scroll_offset + display_height:
             self.state.scroll_offset = word_line - display_height + 1
 
+    def clamp_scroll(self, height):
+        """Borne l'offset de défilement à [0, max]."""
+        total_lines = len(self.state.wrapped_lines) if self.state.wrapped_lines else 0
+        _, display_height = self.calculate_content_area(height)
+        max_offset = max(0, total_lines - display_height)
+        if self.state.scroll_offset < 0:
+            self.state.scroll_offset = 0
+        elif self.state.scroll_offset > max_offset:
+            self.state.scroll_offset = max_offset
+
+    def scroll_by_lines(self, delta: int, height: int):
+        if not self.state.wrapped_lines:
+            return
+        self.state.scroll_offset += delta
+        self.clamp_scroll(height)
+
+    def scroll_page_down(self, height: int):
+        _, display_height = self.calculate_content_area(height)
+        self.scroll_by_lines(display_height - 1, height)
+
+    def scroll_page_up(self, height: int):
+        _, display_height = self.calculate_content_area(height)
+        self.scroll_by_lines(-(display_height - 1), height)
+
+    def scroll_to_top(self):
+        self.state.scroll_offset = 0
+
+    def scroll_to_bottom(self, height: int):
+        total_lines = len(self.state.wrapped_lines) if self.state.wrapped_lines else 0
+        _, display_height = self.calculate_content_area(height)
+        self.state.scroll_offset = max(0, total_lines - display_height)
+
     def load_subject_streaming(self, subject: str, stdscr):
         if self.state.is_generating:
             self.state.stop_streaming = True
@@ -847,7 +1160,11 @@ class SimpleTUI:
                 self.state.streaming_thread.join(timeout=0.5)
 
         with self.state.text_lock:
-            previous_text = self.state.current_text if not self.state.current_text.startswith("Génération en cours") else ""
+            # Ne pas utiliser le placeholder de génération comme contexte précédent
+            if self.state.current_text.startswith(GENERATING_MSG_PREFIX):
+                previous_text = ""
+            else:
+                previous_text = self.state.current_text
         self.state.subject_texts[self.state.current_subject] = previous_text
 
         if subject not in self.state.full_history:
@@ -855,7 +1172,7 @@ class SimpleTUI:
         self.state.history_cursor = 0
         self.state.current_subject = subject
         with self.state.text_lock:
-            self.state.current_text = f"🔄 Génération de '{subject}' en cours..."
+            self.state.current_text = f"{GENERATING_MSG_PREFIX}{subject}' en cours..."
             self.state.force_redraw = True
         self.state.cursor_word_index = 0
         self.state.scroll_offset = 0
@@ -881,7 +1198,8 @@ class SimpleTUI:
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
             curses.mouseinterval(0)
-        except Exception:
+        except curses.error:
+            # Souris non supportée: on continue sans
             pass
 
         try:
@@ -895,7 +1213,8 @@ class SimpleTUI:
             curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
             curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
             stdscr.bkgd(" ", curses.color_pair(1))
-        except Exception:
+        except curses.error:
+            # En cas d'erreur, continuer sans couleurs pour garder l'UI fonctionnelle
             pass
 
         self.load_subject_streaming(self.state.current_subject, stdscr)

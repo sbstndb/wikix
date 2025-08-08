@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Setup script pour installer wikix comme commande système."""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="wikix",
@@ -11,7 +11,7 @@ setup(
     python_requires=">=3.10",
             install_requires=[
             "openai>=1.12.0",
-            "python-dotenv>=1.0.0", 
+            "python-dotenv>=1.0.0",
             "textual>=0.51.0",
             "rich>=13.7.0",
             "google-generativeai>=0.3.0",

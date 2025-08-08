@@ -1,20 +1,57 @@
 """Gestion des fournisseurs de modèles de langage (LLM).
 
-Ce module fournit une abstraction pour interagir avec différents
-fournisseurs de LLM comme OpenAI et Google Gemini.
+Ce module fournit une abstraction propre et extensible pour interagir avec
+différents fournisseurs de LLM (OpenAI, Google Gemini, Cerebras, OpenRouter).
+
+Objectifs de conception (niveau senior):
+- Imports paresseux et optionnels pour éviter les erreurs d'environnement
+  lors de l'import du module si certaines dépendances ne sont pas installées.
+- API cohérente: streaming et agrégation non-stream sur la même interface.
+- Gestion d'erreurs explicite et messages d'action (clé manquante, paquet non
+  installé, réponse HTTP invalide).
+- Paramètres réseau avec timeouts configurables.
 """
 from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from importlib import import_module
 
-import google.generativeai as genai
-import openai
-import requests
-from dotenv import load_dotenv
+# --- Chargement .env optionnel ---
+def _safe_load_dotenv() -> None:
+    try:
+        dotenv_mod = import_module("dotenv")
+        getattr(dotenv_mod, "load_dotenv")()
+    except (ModuleNotFoundError, AttributeError):
+        # dotenv non présent ou API inattendue: ignorer silencieusement
+        return
 
-load_dotenv()
+
+_safe_load_dotenv()
+
+
+# --- Importeurs paresseux (sans dépendances statiques) ---
+def _require_module(module_name: str, install_hint: str):
+    try:
+        return import_module(module_name)
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise ImportError(
+            f"Le paquet requis '{module_name}' est manquant. Installez-le avec: {install_hint}"
+        ) from exc
+
+
+def _require_openai():
+    return _require_module("openai", "pip install openai")
+
+
+def _require_requests():
+    return _require_module("requests", "pip install requests")
+
+
+def _require_genai():
+    # Le paquet s'installe sous le nom 'google-generativeai' mais le module est 'google.generativeai'
+    return _require_module("google.generativeai", "pip install google-generativeai")
 
 # --- Configuration des clés d'API ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -22,12 +59,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# --- Initialisation des clients ---
-if OPENAI_API_KEY:
-    openai.api_key = OPENAI_API_KEY
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# --- Paramètres réseau ---
+DEFAULT_HTTP_TIMEOUT_S: float = float(os.getenv("LLM_HTTP_TIMEOUT_S", "60"))
 
 
 # --- Classe de base pour les fournisseurs LLM ---
@@ -39,7 +72,13 @@ class LLMProvider(ABC):
         self, prompt: str, temperature: float = 0.7, model: str | None = None
     ) -> Iterator[str]:
         """Génère du texte en streaming à partir d'un prompt."""
-        pass
+        raise NotImplementedError
+
+    # API non-stream standardisée (agrégation par défaut)
+    def generate(
+        self, prompt: str, temperature: float = 0.7, model: str | None = None
+    ) -> str:
+        return "".join(self.generate_stream(prompt, temperature, model))
 
     def generate_with_context_stream(
         self,
@@ -59,8 +98,11 @@ class OpenAIProvider(LLMProvider):
     """Fournisseur pour les modèles OpenAI."""
 
     def __init__(self):
+        openai = _require_openai()
         if not OPENAI_API_KEY:
             raise ValueError("La clé d'API OpenAI est requise pour ce fournisseur.")
+        # Configuration client isolée dans l'instance
+        openai.api_key = OPENAI_API_KEY
         self.client = openai.OpenAI()
         self.default_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -74,7 +116,7 @@ class OpenAIProvider(LLMProvider):
 
         stream = self.client.chat.completions.create(**params)
         for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content is not None:
                 yield chunk.choices[0].delta.content
 
 
@@ -83,6 +125,7 @@ class OpenRouterProvider(LLMProvider):
     """Fournisseur utilisant l'API OpenRouter avec contrainte Cerebras."""
 
     def __init__(self):
+        self._requests = _require_requests()
         self.api_key = OPENROUTER_API_KEY
         if not self.api_key:
             raise ValueError("La clé d'API OpenRouter est requise pour ce fournisseur.")
@@ -105,14 +148,16 @@ class OpenRouterProvider(LLMProvider):
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
             "temperature": temperature,
-            "provider": {"only": ["Groq"]},
+            # Optionnel: piloter le provider sous-jacent (commenté par défaut)
+            # "provider": {"only": ["Groq"]},
         }
 
-        response = requests.post(
+        response = self._requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=payload,
             stream=True,
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
         )
         if response.status_code != 200:
             raise RuntimeError(f"Erreur OpenRouter: {response.status_code} - {response.text}")
@@ -128,8 +173,9 @@ class OpenRouterProvider(LLMProvider):
                         chunk = json.loads(data_str)
                         if "choices" in chunk and len(chunk["choices"]) > 0:
                             delta = chunk["choices"][0].get("delta", {})
-                            if "content" in delta and delta["content"]:
-                                yield delta["content"]
+                            content_piece = delta.get("content")
+                            if content_piece:
+                                yield content_piece
                     except json.JSONDecodeError:
                         continue
 
@@ -139,19 +185,20 @@ class GeminiProvider(LLMProvider):
     """Fournisseur pour les modèles Google Gemini."""
 
     def __init__(self):
+        self._genai = _require_genai()
         if not GEMINI_API_KEY:
             raise ValueError("La clé d'API Gemini est requise pour ce fournisseur.")
-        self.default_model = "gemini-1.5-flash"
+        self.default_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        # Configuration du client
+        self._genai.configure(api_key=GEMINI_API_KEY)
 
     def generate_stream(
         self, prompt: str, temperature: float = 0.7, model: str | None = None
     ) -> Iterator[str]:
         selected_model = model or self.default_model
-        model_instance = genai.GenerativeModel(selected_model)
+        model_instance = self._genai.GenerativeModel(selected_model)
 
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature
-        )
+        generation_config = self._genai.types.GenerationConfig(temperature=temperature)
 
         responses = model_instance.generate_content(
             prompt,
@@ -160,7 +207,10 @@ class GeminiProvider(LLMProvider):
         )
 
         for response in responses:
-            yield response.text
+            # Certains chunks peuvent ne pas contenir de texte
+            text_part = getattr(response, "text", None)
+            if text_part:
+                yield text_part
 
 
 # --- Implémentation pour Cerebras ---
@@ -168,12 +218,13 @@ class CerebrasProvider(LLMProvider):
     """Fournisseur pour les modèles Cerebras via Cloudflare AI Gateway."""
 
     def __init__(self):
+        self._requests = _require_requests()
         if not CEREBRAS_API_KEY:
             raise ValueError("La clé d'API Cerebras est requise pour ce fournisseur.")
 
         self.api_key = CEREBRAS_API_KEY
         self.base_url = "https://api.cerebras.ai/v1"
-        self.default_model = "llama3.1-8b"
+        self.default_model = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
 
     def generate_stream(
         self, prompt: str, temperature: float = 0.7, model: str | None = None
@@ -192,11 +243,12 @@ class CerebrasProvider(LLMProvider):
             "temperature": temperature
         }
 
-        response = requests.post(
+        response = self._requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=data,
-            stream=True
+            stream=True,
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
         )
 
         if response.status_code != 200:
@@ -214,38 +266,64 @@ class CerebrasProvider(LLMProvider):
                         chunk = json.loads(data_str)
                         if "choices" in chunk and len(chunk["choices"]) > 0:
                             delta = chunk["choices"][0].get("delta", {})
-                            if "content" in delta and delta["content"]:
-                                yield delta["content"]
+                            content_piece = delta.get("content")
+                            if content_piece:
+                                yield content_piece
                     except json.JSONDecodeError:
                         continue
 
 
-# --- Fonctions dépréciées (à supprimer après refactoring complet) ---
-def generate_fiche_stream(subject: str, template: str, temperature: float = 0.7, model: str | None = None):
-    prompt = template.replace("{sujet}", subject)
-    provider = get_provider(model)
-    return provider.generate_stream(prompt, temperature, model)
+# --- Fonctions d'aide ---
+class LLMError(RuntimeError):
+    """Erreur générique pour les fournisseurs LLM."""
 
-def generate_fiche_with_context_stream(subject: str, context: str, template: str, temperature: float = 0.7, model: str | None = None):
-    provider = get_provider(model)
-    return provider.generate_with_context_stream(subject, context, template, temperature, model)
+
+# --- Fonctions dépréciées (à supprimer après refactoring complet) ---
+def generate_fiche_stream(
+    subject: str,
+    template: str,
+    temperature: float = 0.7,
+    model: str | None = None,
+    provider: str | None = None,
+):
+    prompt = template.replace("{sujet}", subject)
+    provider_impl = select_provider(provider, model)
+    return provider_impl.generate_stream(prompt, temperature, model)
+
+def generate_fiche_with_context_stream(
+    subject: str,
+    context: str,
+    template: str,
+    temperature: float = 0.7,
+    model: str | None = None,
+    provider: str | None = None,
+):
+    provider_impl = select_provider(provider, model)
+    return provider_impl.generate_with_context_stream(subject, context, template, temperature, model)
 
 
 # --- Sélecteur de fournisseur ---
 PROVIDER_MAPPING: dict[str, type[LLMProvider]] = {
+    "openai": OpenAIProvider,
     "gpt": OpenAIProvider,
     "o3": OpenAIProvider,
     "o4": OpenAIProvider,
+    "gpt-": OpenAIProvider,
     "gemini": GeminiProvider,
     "cerebras": CerebrasProvider,
     "llama": CerebrasProvider,
     "openrouter": OpenRouterProvider,
-    "openai/gpt-oss": OpenRouterProvider,
+    # Quelques préfixes OpenRouter populaires
+    "openrouter/anthropic": OpenRouterProvider,
+    "openrouter/openai": OpenRouterProvider,
+    "openrouter/google": OpenRouterProvider,
+    "openrouter/deepseek": OpenRouterProvider,
 }
 
 def get_provider(model_name: str | None) -> LLMProvider:
     """Retourne le fournisseur approprié en fonction du nom du modèle."""
     if not model_name:
+        # Si aucun modèle n'est fourni, tomber sur un modèle OpenAI raisonnable
         return OpenAIProvider()
 
     for prefix, provider_class in PROVIDER_MAPPING.items():
@@ -255,17 +333,42 @@ def get_provider(model_name: str | None) -> LLMProvider:
     raise ValueError(f"Aucun fournisseur trouvé pour le modèle '{model_name}'.")
 
 
+def select_provider(provider_name: str | None, model_name: str | None) -> LLMProvider:
+    """Sélectionne un fournisseur explicitement ou déduit depuis le modèle."""
+    if provider_name:
+        normalized = provider_name.lower()
+        for prefix, provider_class in PROVIDER_MAPPING.items():
+            if normalized.startswith(prefix):
+                return provider_class()
+        valid = ", ".join(sorted(set(k.split("/")[0] for k in PROVIDER_MAPPING.keys())))
+        raise ValueError(f"Provider inconnu '{provider_name}'. Providers valides: {valid}")
+    return get_provider(model_name)
+
+
 # --- Fonctions pour la compatibilité descendante ---
-def generate_fiche(subject: str, template: str, temperature: float = 0.7, model: str | None = None) -> str:
+def generate_fiche(
+    subject: str,
+    template: str,
+    temperature: float = 0.7,
+    model: str | None = None,
+    provider: str | None = None,
+) -> str:
     """Génère une fiche simple (non-stream)."""
     selected_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    provider = get_provider(selected_model)
-    stream = provider.generate_stream(template.replace("{sujet}", subject), temperature, selected_model)
-    return "".join(stream)
+    provider_impl = select_provider(provider, selected_model)
+    prompt = template.replace("{sujet}", subject)
+    return provider_impl.generate(prompt, temperature, selected_model)
 
-def generate_fiche_with_context(subject: str, context: str, template: str, temperature: float = 0.7, model: str | None = None) -> str:
+def generate_fiche_with_context(
+    subject: str,
+    context: str,
+    template: str,
+    temperature: float = 0.7,
+    model: str | None = None,
+    provider: str | None = None,
+) -> str:
     """Génère une fiche avec contexte (non-stream)."""
     selected_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    provider = get_provider(selected_model)
-    stream = provider.generate_with_context_stream(subject, context, template, temperature, selected_model)
-    return "".join(stream)
+    provider_impl = select_provider(provider, selected_model)
+    prompt = template.replace("{sujet}", subject).replace("{contexte}", context)
+    return provider_impl.generate(prompt, temperature, selected_model)
