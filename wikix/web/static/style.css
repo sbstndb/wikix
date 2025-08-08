@@ -1,0 +1,372 @@
+/* --- Réinitialisation et Thème de Base --- */
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'monospace', 'Courier New', Courier;
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+/* --- Structure Principale --- */
+#app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#status-bar {
+    flex-shrink: 0;
+    padding: 6px 15px;
+    border-bottom: 1px solid #0000FF;
+    text-align: center;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    color: #00FF00;
+}
+
+header {
+    flex-shrink: 0;
+    text-align: center;
+    padding: 2vh 0;
+}
+
+#wikix-logo {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #00FFFF;
+    margin-bottom: 2vh;
+}
+
+#subject-box {
+    display: inline-block;
+    border: 1px solid #00FFFF;
+    padding: 8px 12px;
+}
+
+#current-subject {
+    font-weight: bold;
+    font-size: 1.2em;
+    color: #00FFFF;
+}
+
+main {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 2vh 20px 40px 20px;
+}
+
+#text-display {
+    margin: 0 auto;
+    max-width: 80ch;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    text-align: left;
+    font-size: 1.1em;
+    line-height: 1.6;
+}
+
+/* --- Panneaux Flottants --- */
+#history-panel,
+#input-area {
+    position: fixed;
+    z-index: 1000;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+#history-panel {
+    top: 50px;
+    left: 20px;
+    width: 280px;
+    padding: 15px;
+}
+
+#history-panel h3 {
+    margin: 0 0 10px 0;
+    text-align: center;
+}
+
+#history-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#history-list li {
+    padding: 8px 5px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+#history-list li.current {
+    font-weight: bold;
+}
+
+#input-area {
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(80vw, 70ch);
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+#subject-input {
+    width: 100%;
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    text-align: center;
+    padding: 8px 0;
+    outline: none;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* --- Thèmes --- */
+
+/* Thème Sombre (Défaut) */
+body,
+body.theme-dark {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+body.theme-dark #status-bar,
+body.theme-dark #subject-box {
+    border-color: #0000FF;
+}
+
+body.theme-dark #wikix-logo,
+body.theme-dark #current-subject,
+body.theme-dark #history-panel h3,
+body.theme-dark #input-prompt {
+    color: #00FFFF;
+}
+
+body.theme-dark #status-bar {
+    color: #00FF00;
+}
+
+body.theme-dark #history-panel,
+body.theme-dark #input-area {
+    background-color: rgba(10, 20, 30, 0.95);
+    border: 1px solid #00FFFF;
+}
+
+body.theme-dark #subject-input {
+    color: #FFFFFF;
+    border-bottom: 2px solid #00FFFF;
+}
+
+body.theme-dark #history-list li.selected {
+    background-color: #00FFFF;
+    color: #000000;
+}
+
+body.theme-dark .cursor-word {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+body.theme-dark .selected-word {
+    background-color: rgba(255, 0, 255, 0.5);
+}
+
+
+/* Thème Light */
+body.theme-light {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+body.theme-light #status-bar,
+body.theme-light #subject-box {
+    border-color: #0000FF;
+}
+
+body.theme-light #wikix-logo,
+body.theme-light #current-subject,
+body.theme-light #history-panel h3,
+body.theme-light #input-prompt {
+    color: #0000FF;
+}
+
+body.theme-light #status-bar {
+    color: #008000;
+}
+
+body.theme-light #history-panel,
+body.theme-light #input-area {
+    background-color: rgba(230, 240, 255, 0.95);
+    border: 1px solid #0000FF;
+}
+
+body.theme-light #subject-input {
+    color: #000000;
+    border-bottom: 2px solid #0000FF;
+}
+
+body.theme-light #history-list li.selected {
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+
+body.theme-light .cursor-word {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-light .selected-word {
+    background-color: rgba(200, 0, 200, 0.5);
+}
+
+/* Thème Ocean */
+body.theme-ocean {
+    background-color: #00008B;
+    color: #FFFFFF;
+}
+
+body.theme-ocean #status-bar,
+body.theme-ocean #subject-box {
+    border-color: #00FFFF;
+}
+
+body.theme-ocean #wikix-logo,
+body.theme-ocean #current-subject,
+body.theme-ocean #history-panel h3,
+body.theme-ocean #input-prompt {
+    color: #00FFFF;
+}
+
+body.theme-ocean #status-bar {
+    color: #98FB98;
+}
+
+body.theme-ocean #history-panel,
+body.theme-ocean #input-area {
+    background-color: rgba(0, 0, 100, 0.9);
+    border: 1px solid #00FFFF;
+}
+
+body.theme-ocean #subject-input {
+    color: #FFFFFF;
+    border-bottom: 2px solid #00FFFF;
+}
+
+body.theme-ocean #history-list li.selected {
+    background-color: #00FFFF;
+    color: #00008B;
+}
+
+/* Thème Matrix */
+body.theme-matrix {
+    background-color: #000000;
+    color: #00FF00;
+}
+
+body.theme-matrix #status-bar,
+body.theme-matrix #subject-box,
+body.theme-matrix #subject-input {
+    border-color: #00FF00;
+}
+
+body.theme-matrix #wikix-logo,
+body.theme-matrix #current-subject,
+body.theme-matrix #history-panel h3,
+body.theme-matrix #input-prompt,
+body.theme-matrix #status-bar {
+    color: #00FF00;
+}
+
+body.theme-matrix #history-panel,
+body.theme-matrix #input-area {
+    background-color: rgba(0, 20, 0, 0.9);
+    border: 1px solid #00FF00;
+}
+
+body.theme-matrix #subject-input {
+    color: #00FF00;
+}
+
+body.theme-matrix #history-list li.selected {
+    background-color: #00FF00;
+    color: #000000;
+}
+
+/* Thème Pure Black */
+body.theme-pure_black {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+body.theme-pure_black #status-bar,
+body.theme-pure_black #subject-box,
+body.theme-pure_black #subject-input {
+    border-color: #FFFFFF;
+}
+
+body.theme-pure_black #wikix-logo,
+body.theme-pure_black #current-subject,
+body.theme-pure_black #history-panel h3,
+body.theme-pure_black #input-prompt,
+body.theme-pure_black #status-bar {
+    color: #FFFFFF;
+}
+
+body.theme-pure_black #history-panel,
+body.theme-pure_black #input-area {
+    background-color: rgba(20, 20, 20, 0.9);
+    border: 1px solid #FFFFFF;
+}
+
+body.theme-pure_black #subject-input {
+    color: #FFFFFF;
+}
+
+body.theme-pure_black #history-list li.selected {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+/* Thème Pure White */
+body.theme-pure_white {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+body.theme-pure_white #status-bar,
+body.theme-pure_white #subject-box,
+body.theme-pure_white #subject-input {
+    border-color: #000000;
+}
+
+body.theme-pure_white #wikix-logo,
+body.theme-pure_white #current-subject,
+body.theme-pure_white #history-panel h3,
+body.theme-pure_white #input-prompt,
+body.theme-pure_white #status-bar {
+    color: #000000;
+}
+
+body.theme-pure_white #history-panel,
+body.theme-pure_white #input-area {
+    background-color: rgba(245, 245, 245, 0.95);
+    border: 1px solid #000000;
+}
+
+body.theme-pure_white #subject-input {
+    color: #000000;
+}
+
+body.theme-pure_white #history-list li.selected {
+    background-color: #000000;
+    color: #FFFFFF;
+}

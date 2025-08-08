@@ -19,6 +19,7 @@ From the reference text provided below, write a concise dictionary definition fo
     *   After the definition, without any separating text, you MUST create a high-quality ASCII artwork.
     *   **Key Requirement:** The art must be a **clear, obvious, and immediately recognizable** representation of the subject.
     *   For example, if the subject is "Paris", draw the Eiffel Tower. If it's "Lamp", draw a lamp. The art must be figurative, not abstract.
+    *   Strict height limit: at most 20 lines tall.
     *   Be creative and talented to make the result aesthetically pleasing.
 
 **Expected format example:**

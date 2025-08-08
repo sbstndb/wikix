@@ -13,6 +13,7 @@ Rédige une définition de dictionnaire concise et informative pour le terme sui
     *   Après la définition, sans aucun texte de séparation, tu DOIS créer une œuvre d'art ASCII de haute qualité.
     *   **Exigence clé :** L'art doit être une représentation **claire, évidente et immédiatement reconnaissable** du sujet.
     *   Par exemple, si le sujet est "Paris", dessine la Tour Eiffel. Si c'est "Lampe", dessine une lampe. L'art doit être figuratif et non abstrait.
+    *   Limite stricte de hauteur : au maximum 20 lignes.
     *   Fais preuve de créativité et de talent pour que le résultat soit esthétique.
 
 **Exemple de format attendu :**

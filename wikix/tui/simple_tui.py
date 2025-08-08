@@ -33,7 +33,7 @@ SEPARATOR_HEIGHT = 1
 STATUS_HEIGHT = 1
 
 # Préfixe de message de génération (utilisé pour éviter de traiter ce placeholder comme un vrai contexte)
-GENERATING_MSG_PREFIX = "🔄 Génération de '"
+GENERATING_MSG_PREFIX = "🔄 Generating '"
 
 # --- Regex & wrapping ---
 # Mots: lettres (ASCII + étendu), chiffres, avec apostrophes/tirets internes (ex: aujourd’hui, Jean-Pierre, 4G)
@@ -88,49 +88,19 @@ def _truncate_display(text: str, max_columns: int) -> str:
     return "".join(out_chars)
 
 
-def _wrap_text_display(text: str, max_columns: int) -> list[str]:
-    """Découpe le texte en lignes n'excédant pas max_columns colonnes d'affichage.
-    Essaye de couper par mots; en cas de mot trop long, coupe par caractères.
-    """
-    if max_columns <= 0:
-        return [""]
-    words = text.split(" ")
-    lines: list[str] = []
-    current = ""
-    for word in words:
-        candidate = f"{current} {word}" if current else word
-        if _display_width(candidate) <= max_columns:
-            current = candidate
-            continue
-        if current:
-            lines.append(current)
-            current = ""
-        # Mot trop long: couper par caractères
-        remaining = word
-        while remaining:
-            take = _truncate_display(remaining, max_columns)
-            if not take:
-                break
-            lines.append(take)
-            remaining = remaining[len(take):]
-    if current:
-        lines.append(current)
-    return lines or [""]
-
-
 # ASCII art multi-lignes pour "wikix"
 WIKIX_ASCII_ART: list[str] = [
-    "W   W  III  K  K  III  X   X",
-    "W   W   I   K K    I    X X ",
-    "W W W   I   KK     I     X  ",
-    "WW WW   I   K K    I    X X ",
-    "W   W  III  K  K  III  X   X",
+    "W   W   III   K  K   III   X   X",
+    "W   W    I    K K     I     X X ",
+    "W W W    I    KK      I      X  ",
+    "WW WW    I    K K     I     X X ",
+    "W   W   III   K  K   III   X   X",
 ]
 
 
 class TUIState:
     """Encapsule l'état de l'interface TUI pour une meilleure gestion."""
-    def __init__(self, initial_subject: str = "Wikipédia"):
+    def __init__(self, initial_subject: str = "Wikipedia"):
         self.current_subject: str = initial_subject
         self.current_text: str = ""
         self.words: list[tuple[str, int, int]] = []
@@ -155,7 +125,7 @@ class TUIState:
         self.selection_start: int = -1
         self.selection_end: int = -1
 
-        self.current_language: str = "fr"
+        self.current_language: str = "en"
         self.languages: dict = {
             "fr": {"name": "Français", "flag": "FR"},
             "en": {"name": "English", "flag": "EN"},
@@ -164,7 +134,7 @@ class TUIState:
 
         self.input_mode: bool = False
         self.input_text: str = ""
-        self.input_prompt: str = "Entrez un sujet :"
+        self.input_prompt: str = "Enter a subject:"
 
         self.current_model: str = "gpt-4o-mini"
         self.current_provider: str | None = None
@@ -234,22 +204,32 @@ class TUIState:
         # Nombre de lignes physiques utilisées pour les instructions (centrage plein écran)
         self.instructions_lines_count: int = 1
 
+        # Sujets actuellement en génération (pour éviter oscillations et permettre le fond)
+        self.generating_subjects: set[str] = set()
+
+        # Lien parent -> enfant pour dessiner un historique en arbre
+        self.subject_parent: dict[str, str | None] = {initial_subject: None}
+        # Lignes aplaties de l'arbre pour navigation dans le panneau historique
+        self.history_tree_lines: list[str] = []
+        # Mots cliqués pour chaque sujet (subject -> liste des mots cliqués)
+        self.clicked_words: dict[str, list[str]] = {}
+
 
 class SimpleTUI:
-    def __init__(self, initial_subject: str = "Wikipédia"):
+    def __init__(self, initial_subject: str = "Wikipedia"):
         self.state = TUIState(initial_subject)
         # Hauteurs dynamiques mémorisées
         self._last_header_height: int = HEADER_HEIGHT
 
     def _draw_header(self, stdscr, screen_width, start_y: int):
-        """Dessine l'en-tête ASCII art 'WIKIX' + sujet encadré à partir de start_y, centrés plein écran.
-        Retourne la hauteur réellement dessinée (nb de lignes).
+        """Draws the ASCII art 'WIKIX' header + boxed subject from start_y, centered.
+        Returns the actual height drawn (number of lines).
         """
         def centered_x(s: str) -> int:
             return max(0, (screen_width - _display_width(s)) // 2)
 
         current_y = start_y
-        # Espace au-dessus du logo WIKIX
+        # Space above WIKIX logo
         for _ in range(HEADER_TOP_PADDING):
             with contextlib.suppress(curses.error):
                 stdscr.addstr(current_y, 0, "")
@@ -264,13 +244,13 @@ class SimpleTUI:
                     stdscr.addstr(current_y, centered_x(draw_line), draw_line, curses.A_BOLD)
             current_y += 1
 
-        # Espace entre le logo et le sujet encadré
+        # Space between logo and boxed subject
         for _ in range(HEADER_BETWEEN_PADDING):
             with contextlib.suppress(curses.error):
                 stdscr.addstr(current_y, 0, "")
             current_y += 1
 
-        # 2) Sujet encadré
+        # 2) Boxed subject
         subject = self.state.current_subject.upper()
         border_top = "┌" + "─" * (len(subject) + 2) + "┐"
         border_mid = f"│ {subject} │"
@@ -284,7 +264,7 @@ class SimpleTUI:
                     stdscr.addstr(current_y, centered_x(display_line), display_line, curses.A_BOLD)
             current_y += 1
 
-        # Padding supplémentaire entre le titre de la fiche et le texte
+        # Extra padding between title and content
         for _ in range(TITLE_TO_CONTENT_PADDING):
             with contextlib.suppress(curses.error):
                 stdscr.addstr(current_y, 0, "")
@@ -293,18 +273,60 @@ class SimpleTUI:
         return current_y - start_y
 
     def _draw_history_panel(self, stdscr, height, separator_line, left_panel_width):
-        """Dessine le panneau de l'historique."""
+        """Draws the history panel."""
         panel_height = height - (separator_line + 1) - 1
         panel_start_line = separator_line + 1
-        # Suppression de la barre verticale pour un design plus épuré
-        # (anciennes barres verticales supprimées)
-        title = "Historique"
+        # Vertical bar removed for a cleaner design
+        # (old vertical bars removed)
+        has_tree = any(self.state.subject_parent.get(s) is not None for s in self.state.full_history)
+        title = f"History ({len(self.state.full_history)} items)" + (" TREE" if has_tree else " LIST")
         try:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.color_pair(3) | curses.A_BOLD)
         except curses.error:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.A_BOLD)
 
-        visible_items = self.state.full_history
+        # Construire un affichage en arbre récursif avec caractères ASCII simples
+        def build_tree_recursive(node: str, prefix: str = "", is_last: bool = True) -> list[str]:
+            # Ajouter le noeud actuel avec son préfixe
+            if prefix == "":
+                lines = [node]  # Racine sans préfixe
+            else:
+                connector = "L-- " if is_last else "+-- "
+                lines = [prefix + connector + node]
+            
+            # Trouver tous les enfants de ce noeud
+            children = [s for s in self.state.full_history if self.state.subject_parent.get(s) == node]
+            
+            # Traiter chaque enfant
+            for i, child in enumerate(children):
+                is_last_child = (i == len(children) - 1)
+                if prefix == "":
+                    child_prefix = "  "  # Indentation pour les enfants directs de la racine
+                else:
+                    child_prefix = prefix + ("    " if is_last else "|   ")
+                lines.extend(build_tree_recursive(child, child_prefix, is_last_child))
+            
+            return lines
+
+        # Trouver toutes les racines (sujets sans parent)
+        roots = [s for s in self.state.full_history if self.state.subject_parent.get(s) is None]
+        
+        tree_lines: list[str] = []
+        for root in roots:
+            tree_lines.extend(build_tree_recursive(root))
+            tree_lines.append("")  # Ligne vide entre les arbres
+        
+        # Supprimer toutes les lignes vides
+        tree_lines = [line for line in tree_lines if line.strip()]
+        
+        # Si pas d'arbre, utiliser la liste simple mais toujours mémoriser
+        if not tree_lines:
+            tree_lines = list(self.state.full_history)
+        
+        # Mémoriser pour la navigation
+        self.state.history_tree_lines = tree_lines
+
+        visible_items = self.state.history_tree_lines
         max_visible = panel_height - 2
         if len(visible_items) > max_visible:
             if self.state.history_cursor < self.state.history_scroll:
@@ -317,7 +339,9 @@ class SimpleTUI:
             items_slice = visible_items
         for idx, subj in enumerate(items_slice):
             line_no = panel_start_line + 1 + idx
-            is_current = (subj == self.state.current_subject)
+            # Extraire sujet brut (sans glyphes d'arbre ASCII) pour comparer
+            raw = subj.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
+            is_current = (raw == self.state.current_subject)
             is_selected = (self.state.history_mode and (self.state.history_scroll + idx) == self.state.history_cursor)
             display_text = subj[:left_panel_width-2].ljust(left_panel_width-2)
             try:
@@ -332,8 +356,8 @@ class SimpleTUI:
                 stdscr.addstr(line_no, 1, display_text, attr)
 
     def _draw_content(self, stdscr, height, screen_width, separator_line, left_panel_width, current_text_copy):
-        """Dessine le contenu principal de la fiche en itérant sur les mots."""
-        # Les calculs se basent sur la largeur totale de l'écran et tiennent compte du panneau historique
+        """Draws the main content by iterating over words."""
+        # Calculations are based on full screen width and take the history panel into account
         content_left_margin, text_width = self.calculate_text_margins(screen_width, left_panel_width)
 
         words, wrapped_lines = self.extract_words(current_text_copy, text_width)
@@ -373,22 +397,40 @@ class SimpleTUI:
             end_idx = max(self.state.selection_start, self.state.selection_end)
             selection_range = set(range(start_idx, end_idx + 1))
 
-        # Redessiner les mots avec un style spécial
-        # Autoriser la surbrillance pendant le streaming, mais pas pendant le placeholder "Génération de ..."
+        # Redraw words with special style
+        # Allow highlight during streaming, but not during the initial "Generating ..." placeholder
         placeholder_active = current_text_copy.startswith(GENERATING_MSG_PREFIX)
         if not placeholder_active:
+            # Récupérer les mots cliqués depuis ce sujet spécifique
+            clicked_words_list = self.state.clicked_words.get(self.state.current_subject, [])
+            # Récupérer tous les sujets déjà explorés (historique complet)
+            explored_subjects = set(self.state.full_history)
+            
             for i, (text, line_idx, col_start) in enumerate(self.state.words):
                 if scroll_start_line <= line_idx < scroll_start_line + display_height:
                     style = None
+                    
+                    # Vérifier si le mot correspond à un sujet déjà exploré
+                    is_explored_subject = text.lower() in [subj.lower() for subj in explored_subjects]
+                    # Vérifier si le mot a été cliqué depuis ce sujet
+                    is_clicked_from_here = any(clicked_word.replace("[", "").replace("]", "").lower() == text.lower() for clicked_word in clicked_words_list)
+                    
+                    # Priorité des styles: curseur > sélection > cliqué depuis ici > sujet exploré
                     if i == self.state.cursor_word_index:
-                        style = curses.color_pair(2)
+                        style = curses.color_pair(2)  # Cyan (curseur)
                     elif i in selection_range:
-                        style = curses.color_pair(7) | curses.A_BOLD
+                        style = curses.color_pair(7) | curses.A_BOLD  # Blanc gras (sélection)
+                    elif is_clicked_from_here:
+                        # Mots cliqués depuis ce sujet : magenta souligné + gras
+                        style = curses.color_pair(6) | curses.A_UNDERLINE | curses.A_BOLD
+                    elif is_explored_subject:
+                        # Sujets déjà explorés : magenta simple (moins fort)
+                        style = curses.color_pair(6)
 
                     if style:
                         screen_y = (line_idx - scroll_start_line) + content_start_y + vertical_offset
                         base_x = content_left_margin + col_start
-                        # Clipper si le mot commence sous le panneau historique
+                        # Clip if the word starts under the history panel
                         draw_x = max(base_x, left_panel_width)
                         if draw_x < screen_width:
                             clip_start = max(0, draw_x - base_x)
@@ -600,7 +642,10 @@ class SimpleTUI:
                get_template_for_lang(self.state.current_language, with_context=True)
 
     def generate_fiche_streaming_thread(self, subject: str, previous_text: str):
-        """Génère une fiche en streaming dans un thread séparé."""
+        """Génère une fiche en streaming dans un thread séparé.
+        Met à jour le cache du sujet en continu. N'actualise l'écran
+        que si le sujet généré est le sujet courant, pour éviter les oscillations.
+        """
         try:
             general_template, context_template = self.get_templates_for_language()
 
@@ -627,8 +672,12 @@ class SimpleTUI:
                 # Ajouter le chunk, mais afficher sans déclencher de scroll automatique
                 full_content += chunk
                 with self.state.text_lock:
-                    self.state.current_text = full_content
-                    self.state.force_redraw = True
+                    # Mettre à jour le cache du sujet en cours de génération
+                    self.state.subject_texts[subject] = full_content
+                    # Rafraîchir l'écran uniquement si on est toujours sur ce sujet
+                    if self.state.current_subject == subject:
+                        self.state.current_text = full_content
+                        self.state.force_redraw = True
                 time.sleep(0.06)
 
             if not self.state.stop_streaming:
@@ -667,8 +716,8 @@ class SimpleTUI:
         stdscr.erase()
         height, width = stdscr.getmaxyx()
 
-        show_history_panel = width >= 60
-        left_panel_width = 24 if show_history_panel else 0
+        show_history_panel = width >= 50  # Seuil d'affichage
+        left_panel_width = min(35, width // 3) if show_history_panel else 0  # Adaptatif mais plus large
 
         self.init_colors()
 
@@ -676,24 +725,24 @@ class SimpleTUI:
             stdscr.bkgd(" ", curses.color_pair(1))
 
         theme_map = {
-            "dark": "🌙 Sombre", "light": "☀️ Clair", "ocean": "🌊 Océan",
-            "matrix": "📟 Matrix", "pure_black": "🖤 Noir Pur", "pure_white": "🤍 Blanc Pur"
+            "dark": "🌙 Dark", "light": "☀️ Light", "ocean": "🌊 Ocean",
+            "matrix": "📟 Matrix", "pure_black": "🖤 Pure Black", "pure_white": "🤍 Pure White"
         }
         theme_name = theme_map.get(self.state.current_theme, self.state.current_theme.title())
         lang_info = self.state.languages[self.state.current_language]
         model_info = self.state.available_models[self.state.current_model]
         if self.state.history_mode:
-            instructions = "🗂️ Historique | ↑↓: Parcourir | Entrée: Ouvrir | Esc/h: Fermer"
+            instructions = "🗂️ History | ↑↓/Tab: Browse | Enter: Open | Esc/h: Close"
         elif self.state.input_mode:
-            instructions = "✏️ Mode saisie | Tapez votre sujet puis Entrée | Esc: Annuler"
+            instructions = "✏️ Input mode | Type your subject then Enter | Esc: Cancel"
         elif self.state.is_generating and self.state.selection_mode:
-            instructions = f"🔄📝 Génération + Sélection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Arrêter"
+            instructions = f"🔄📝 Generating + Selection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Stop | Tab: Next hist"
         elif self.state.is_generating:
-            instructions = f"🔄 En génération | ↑↓←→: Naviguer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Arrêter"
+            instructions = f"🔄 Generating | Arrows: Navigate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Stop | Tab: Next hist"
         elif self.state.selection_mode:
-            instructions = f"📝 Mode sélection | ↑↓←→: Étendre | Entrée: Générer | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | Esc: Annuler"
+            instructions = f"📝 Selection mode | Arrows: Expand | Enter: Generate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | Esc: Cancel | Tab: Next hist"
         else:
-            instructions = f"↑↓←→: Naviguer | Entrée: Générer | Space: Sélection | 'r': Régénérer | 'i': Saisie | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 'h': Hist. | 'b': Retour | 'q': Quitter"
+            instructions = f"Arrows: Navigate | Enter: Generate | Space: Select | 'r': Regenerate | 'i': Input | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 'h': History | Tab: Next hist | 'b': Back | 'q': Quit"
 
         # Afficher le panneau d'infos (instructions) TOUT EN HAUT
         instructions_line = 0
@@ -742,7 +791,7 @@ class SimpleTUI:
         if current_text_copy:
             self._draw_content(stdscr, height, width, separator_line, left_panel_width, current_text_copy)
         else:
-            msg = "Génération de la fiche en cours..."
+            msg = "Generating entry..." if self.state.is_generating else "No content yet. Press Enter to generate."
             disp_msg = _truncate_display(msg, max_columns=max(0, width - 2))
             x_msg = max(0, (width - _display_width(disp_msg)) // 2)
             with contextlib.suppress(curses.error):
@@ -753,10 +802,10 @@ class SimpleTUI:
                 selected_text = self.get_selected_text()
                 if len(selected_text) > 25:
                     selected_text = selected_text[:22] + "..."
-                status = f'📝 Sélection: "{selected_text}" ({abs(self.state.selection_end - self.state.selection_start) + 1} mots)'
+                status = f'📝 Selection: "{selected_text}" ({abs(self.state.selection_end - self.state.selection_start) + 1} words)'
             else:
                 current_word = self.state.words[self.state.cursor_word_index][0] if self.state.cursor_word_index < len(self.state.words) else ""
-                status = f"📍 Mot {self.state.cursor_word_index + 1}/{len(self.state.words)}: {current_word}"
+                status = f"📍 Word {self.state.cursor_word_index + 1}/{len(self.state.words)}: {current_word}"
 
             theme_indicator = "🌙" if self.state.current_theme == "dark" else "☀️"
             lang_indicator = self.state.languages[self.state.current_language]["flag"]
@@ -813,9 +862,22 @@ class SimpleTUI:
                     self.state.history_cursor += 1
                     self.state.force_redraw = True
                 return False
+            if key == ord('\t'):
+                # Tab cycles forward through tree lines; Shift-Tab backward if supported
+                lines = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                if lines:
+                    self.state.history_cursor = (self.state.history_cursor + 1) % len(lines)
+                    self.state.force_redraw = True
+                return False
             if key in (ord("\n"), ord("\r")):
-                if 0 <= self.state.history_cursor < len(self.state.full_history):
-                    selected_subject = self.state.full_history[self.state.history_cursor]
+                lines = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                if 0 <= self.state.history_cursor < len(lines):
+                    selected_line = lines[self.state.history_cursor]
+                    # Strip branches to get raw subject
+                    selected_subject = selected_line.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
+                    # Ignorer les lignes vides
+                    if not selected_subject:
+                        return False
                     if self.state.is_generating:
                         self.state.stop_streaming = True
                         if self.state.streaming_thread:
@@ -825,17 +887,15 @@ class SimpleTUI:
                         self.state.subject_texts[self.state.current_subject] = self.state.current_text
                     self.state.history_mode = False
                     self.state.history_cursor = 0
-                    if selected_subject in self.state.subject_texts:
+                    # Charger le sujet choisi: si cache vide, démarrer génération, en traçant le parent
+                    if selected_subject in self.state.subject_texts and self.state.subject_texts[selected_subject]:
                         self.state.current_subject = selected_subject
                         with self.state.text_lock:
-                            self.state.current_text = self.state.subject_texts.get(selected_subject, "") or f"🔄 Génération de '{selected_subject}' en cours..."
+                            self.state.current_text = self.state.subject_texts.get(selected_subject, "")
                             self.state.force_redraw = True
-                        if not self.state.current_text.startswith("🔄 Génération") and self.state.current_text:
-                            self.state.is_generating = False
-                        else:
-                            self.load_subject_streaming(selected_subject, stdscr)
+                        self.state.is_generating = False
                     else:
-                        self.load_subject_streaming(selected_subject, stdscr)
+                        self.load_subject_streaming(selected_subject, stdscr, parent=self.state.current_subject)
                     return False
             else:
                 return False
@@ -845,7 +905,12 @@ class SimpleTUI:
             if result:
                 self.state.input_mode = False
                 self.state.history.append(self.state.current_subject)
-                self.load_subject_streaming(result, stdscr)
+                # Enregistrer le terme tapé comme "mot cliqué" (recherche manuelle)
+                if self.state.current_subject not in self.state.clicked_words:
+                    self.state.clicked_words[self.state.current_subject] = []
+                if result not in self.state.clicked_words[self.state.current_subject]:
+                    self.state.clicked_words[self.state.current_subject].append(f"[{result}]")  # Crochets pour différencier
+                self.load_subject_streaming(result, stdscr, parent=self.state.current_subject)
             return False
 
         if key == ord("q"):
@@ -909,6 +974,18 @@ class SimpleTUI:
                 self.start_selection()
             else:
                 self.clear_selection()
+        # Global Tab: cycle through history without regenerating
+        elif key == ord('\t'):
+            if self.state.full_history:
+                self.state.history_cursor = (self.state.history_cursor + 1) % len(self.state.full_history)
+                next_subject = self.state.full_history[self.state.history_cursor]
+                # Switch subject and display cached text if available, without triggering generation
+                self.state.current_subject = next_subject
+                with self.state.text_lock:
+                    self.state.current_text = self.state.subject_texts.get(next_subject, "")
+                    self.state.force_redraw = True
+                self.state.is_generating = False
+            return False
         elif key == 27:
             if self.state.selection_mode:
                 self.clear_selection()
@@ -964,9 +1041,14 @@ class SimpleTUI:
                 selected_text = self.get_selected_text()
                 if selected_text:
                     self.state.history.append(self.state.current_subject)
+                    # Enregistrer le mot cliqué pour surligner dans le parent
+                    if self.state.current_subject not in self.state.clicked_words:
+                        self.state.clicked_words[self.state.current_subject] = []
+                    if selected_text not in self.state.clicked_words[self.state.current_subject]:
+                        self.state.clicked_words[self.state.current_subject].append(selected_text)
                     if self.state.selection_mode:
                         self.clear_selection()
-                    self.load_subject_streaming(selected_text, stdscr)
+                    self.load_subject_streaming(selected_text, stdscr, parent=self.state.current_subject)
 
         return False
 
@@ -1049,51 +1131,72 @@ class SimpleTUI:
         return best_index
 
     def word_index_at_screen(self, x: int, y: int, term_width: int, term_height: int) -> int:
-        """Retourne l'index du mot situé aux coordonnées écran (x,y) ou -1."""
+        """Retourne l'index du mot situé aux coordonnées écran (x,y) ou -1.
+        Utilise exactement la même logique que _draw_content pour une précision parfaite.
+        """
         if not self.state.words or not self.state.wrapped_lines:
             return -1
 
-        # --- Logique de calcul de position (miroir de _draw_content) ---
-        # Centrage global: basé sur la largeur totale (on estime le panneau gauche s'il existe)
-        # On reproduit la règle used dans draw_screen: left_panel si width>=60
-        simulated_left_panel = 24 if term_width >= 60 else 0
-        content_left_margin, _text_width = self.calculate_text_margins(term_width, simulated_left_panel)
-
-        _, display_height = self.calculate_content_area(term_height)
-        content_start_y = self.calculate_content_area(term_height)[0]
-
-        scroll_start_line = self.state.scroll_offset
-        # S'assurer d'utiliser les wrapped_lines déjà calculées
+        # === LOGIQUE IDENTIQUE À _draw_content ===
+        
+        # Calculer left_panel_width exactement comme dans draw_screen
+        show_history_panel = term_width >= 50
+        left_panel_width = min(35, term_width // 3) if show_history_panel else 0
+        
+        # Calculer les marges exactement comme _draw_content
+        content_left_margin, _ = self.calculate_text_margins(term_width, left_panel_width)
+        
+        # Calculer la zone de contenu
+        content_start_y, display_height = self.calculate_content_area(term_height)
+        
+        # Déterminer le scroll (identique à _draw_content)
+        scroll_start_line = 0 if self.state.is_generating else self.state.scroll_offset
+        
+        # Calculer vertical_offset (même logique que _draw_content)
         visible_lines = self.state.wrapped_lines[scroll_start_line : scroll_start_line + display_height]
-        vertical_offset = max(0, (display_height - len(visible_lines)) // 2)
-        # --- Fin de la logique miroir ---
+        vertical_offset = 0  # Ancrage en haut comme dans _draw_content
 
-        # Déterminer la ligne de texte cliquée
-        clicked_text_line_index = -1
-        for i in range(len(visible_lines)):
-            screen_y = i + content_start_y + vertical_offset
-            if y == screen_y:
-                clicked_text_line_index = scroll_start_line + i
-                break
-
-        if clicked_text_line_index == -1:
+        # === DÉTECTION DE LA LIGNE CLIQUÉE ===
+        
+        # Vérifier si le clic est dans la zone de contenu
+        if y < content_start_y or y >= content_start_y + len(visible_lines):
             return -1
-
-        # Déterminer la colonne de texte cliquée
-        clicked_text_col = x - content_left_margin
-        if clicked_text_col < 0:
-            return -1
-
-        # Trouver le mot qui correspond aux coordonnées
+            
+        # Calculer l'index de ligne dans le texte wrappé
+        clicked_line_index = scroll_start_line + (y - content_start_y - vertical_offset)
+        
+        # === DÉTECTION DU MOT CLIQUÉ ===
+        
+        # Parcourir tous les mots pour trouver celui sous le curseur
         for idx, (word_text, word_line_idx, word_col_start) in enumerate(self.state.words):
-            if word_line_idx == clicked_text_line_index and (
-                word_col_start <= clicked_text_col < word_col_start + len(word_text)
-            ):
+            # Vérifier si le mot est sur la ligne cliquée
+            if word_line_idx != clicked_line_index:
+                continue
+                
+            # Calculer la position écran du mot (même logique que _draw_content)
+            base_x = content_left_margin + word_col_start
+            draw_x = max(base_x, left_panel_width)  # Clipping gauche
+            
+            # Vérifier si le mot est visible (pas clippé hors écran)
+            if draw_x >= term_width:
+                continue
+                
+            # Calculer les bornes du mot à l'écran
+            clip_start = max(0, draw_x - base_x)
+            max_cols = max(0, term_width - draw_x)
+            visible_text = word_text[clip_start: clip_start + max_cols]
+            
+            if not visible_text:
+                continue
+                
+            # Calculer la largeur d'affichage réelle du mot visible
+            word_display_width = _display_width(visible_text)
+            
+            # Vérifier si le clic est dans la zone du mot
+            if draw_x <= x < draw_x + word_display_width:
                 return idx
 
         return -1
-
-        # --- Fin navigation souris ---
 
     def calculate_content_area(self, height):
         # Calcule la zone de contenu en tenant compte des hauteurs dynamiques (instructions + header)
@@ -1153,11 +1256,8 @@ class SimpleTUI:
         _, display_height = self.calculate_content_area(height)
         self.state.scroll_offset = max(0, total_lines - display_height)
 
-    def load_subject_streaming(self, subject: str, stdscr):
-        if self.state.is_generating:
-            self.state.stop_streaming = True
-            if self.state.streaming_thread and self.state.streaming_thread.is_alive():
-                self.state.streaming_thread.join(timeout=0.5)
+    def load_subject_streaming(self, subject: str, stdscr, parent: str | None = None):
+        # Ne pas interrompre une génération en cours d'un autre sujet
 
         with self.state.text_lock:
             # Ne pas utiliser le placeholder de génération comme contexte précédent
@@ -1165,15 +1265,23 @@ class SimpleTUI:
                 previous_text = ""
             else:
                 previous_text = self.state.current_text
+        # Mémoriser le texte précédent pour le sujet courant avant bascule
         self.state.subject_texts[self.state.current_subject] = previous_text
 
         if subject not in self.state.full_history:
             self.state.full_history.insert(0, subject)
+        # Enregistrer le parent si fourni
+        if parent is not None:
+            self.state.subject_parent[subject] = parent
+        elif subject not in self.state.subject_parent:
+            self.state.subject_parent[subject] = None
         self.state.history_cursor = 0
         self.state.current_subject = subject
         with self.state.text_lock:
-            self.state.current_text = f"{GENERATING_MSG_PREFIX}{subject}' en cours..."
-            self.state.force_redraw = True
+            # Ne change pas l'écran si on navigue ailleurs; seulement si le sujet affiché == subject
+            if self.state.current_subject == subject:
+                self.state.current_text = f"{GENERATING_MSG_PREFIX}{subject}' en cours..."
+                self.state.force_redraw = True
         self.state.cursor_word_index = 0
         self.state.scroll_offset = 0
         self.state.is_generating = True
@@ -1182,12 +1290,11 @@ class SimpleTUI:
         self.draw_screen(stdscr)
         stdscr.refresh()
 
-        self.state.streaming_thread = threading.Thread(
+        threading.Thread(
             target=self.generate_fiche_streaming_thread,
             args=(subject, previous_text),
             daemon=True
-        )
-        self.state.streaming_thread.start()
+        ).start()
 
     def run(self, stdscr):
         """Boucle principale de l'interface."""
@@ -1235,7 +1342,7 @@ class SimpleTUI:
                 self.state.streaming_thread.join(timeout=2)
 
 
-def run_simple_tui(initial_subject: str = "Lyon"):
+def run_simple_tui(initial_subject: str = "Wikipedia"):
     """Lance l'interface TUI simple."""
     tui = SimpleTUI(initial_subject)
     curses.wrapper(tui.run)

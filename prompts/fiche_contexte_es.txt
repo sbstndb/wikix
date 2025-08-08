@@ -19,6 +19,7 @@ A partir del texto de referencia proporcionado a continuación, redacta una defi
     *   Después de la definición, sin ningún texto de separación, DEBES crear una obra de arte ASCII de alta calidad.
     *   **Requisito clave:** El arte debe ser una representación **clara, evidente e inmediatamente reconocible** del tema.
     *   Por ejemplo, si el tema es "París", dibuja la Torre Eiffel. Si es "Lámpara", dibuja una lámpara. El arte debe ser figurativo, no abstracto.
+    *   Límite estricto de altura: como máximo 20 líneas.
     *   Demuestra creatividad y talento para que el resultado sea estético.
 
 **Ejemplo de formato esperado:**
