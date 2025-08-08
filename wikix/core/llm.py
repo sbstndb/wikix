@@ -111,7 +111,8 @@ class OpenAIProvider(LLMProvider):
     ) -> Iterator[str]:
         selected_model = model or self.default_model
         params = {"model": selected_model, "messages": [{"role": "user", "content": prompt}], "stream": True}
-        if not (selected_model.startswith("o3") or selected_model.startswith("o4")):
+        # Certains modèles (o3/o4/gpt-5) n'acceptent pas temperature != 1
+        if not (selected_model.startswith("o3") or selected_model.startswith("o4") or selected_model.startswith("gpt-5")):
             params["temperature"] = temperature
 
         stream = self.client.chat.completions.create(**params)

@@ -108,15 +108,19 @@ class TUIState:
         self.cursor_word_index: int = 0
         self.history: list[str] = []
         self.full_history: list[str] = [initial_subject]
+        # Timestamps pour tri chronologique (subject -> timestamp)
+        self.subject_timestamps: dict[str, float] = {initial_subject: time.time()}
+        # Métadonnées de génération par sujet (subject -> {model, provider, language}) - initialisé plus bas
+        self.subject_metadata: dict[str, dict[str, str]] = {}
         self.history_cursor: int = 0
         self.history_mode: bool = False
+        # Visibilité du panneau historique (toggle avec 'h')
+        self.history_visible: bool = True
         self.history_scroll: int = 0
         self.subject_texts: dict[str, str] = {initial_subject: ""}
 
         self.scroll_offset: int = 0
         self.is_generating: bool = False
-        self.streaming_thread: threading.Thread | None = None
-        self.stop_streaming: bool = False
         self.text_lock = threading.Lock()
         self.last_text_hash: int = 0
         self.force_redraw: bool = False
@@ -142,6 +146,9 @@ class TUIState:
         self.available_models: dict = {
             "gpt-4o-mini": {"name": "4o-mini", "symbol": "🔹", "features": "standard"},
             "gpt-4o": {"name": "4o", "symbol": "🔷", "features": "standard"},
+            "gpt-5": {"name": "gpt-5", "symbol": "🔵", "features": "latest"},
+            "gpt-5-mini": {"name": "gpt-5-mini", "symbol": "🔷", "features": "fast"},
+            "gpt-5-nano": {"name": "gpt-5-nano", "symbol": "🔹", "features": "ultra-fast"},
             "o3-mini": {"name": "o3-mini", "symbol": "🟦", "features": "no_temp"},
             "o4-mini": {"name": "o4-mini", "symbol": "🟪", "features": "future"},
             "gemini-2.5-flash": {"name": "gemini-2.5-flash", "symbol": "⚡️", "features": "standard"},
@@ -157,7 +164,7 @@ class TUIState:
         # Filtrage par provider
         self.provider_models: dict = {
             None: list(self.available_models.keys()),
-            "openai": ["gpt-4o-mini", "gpt-4o", "o3-mini", "o4-mini"],
+            "openai": ["gpt-4o-mini", "gpt-4o", "gpt-5", "gpt-5-mini", "gpt-5-nano", "o3-mini", "o4-mini"],
             "gemini": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
             "cerebras": ["llama3.1-8b", "llama3.1-70b"],
             "openrouter": [
@@ -167,7 +174,7 @@ class TUIState:
             ],
         }
 
-        self.current_theme: str = "dark"
+        self.current_theme: str = "pure_white"
         self.themes: dict = {
             "dark": {
                 "bg": curses.COLOR_BLACK, "text": curses.COLOR_WHITE, "title": curses.COLOR_CYAN,
@@ -213,6 +220,13 @@ class TUIState:
         self.history_tree_lines: list[str] = []
         # Mots cliqués pour chaque sujet (subject -> liste des mots cliqués)
         self.clicked_words: dict[str, list[str]] = {}
+        
+        # Initialiser les métadonnées pour le sujet initial maintenant que tous les attributs sont définis
+        self.subject_metadata[initial_subject] = {
+            'model': self.current_model,
+            'provider': self.current_provider or 'auto',
+            'language': self.current_language
+        }
 
 
 class SimpleTUI:
@@ -285,6 +299,10 @@ class SimpleTUI:
         except curses.error:
             stdscr.addstr(panel_start_line, 1, title[:left_panel_width-2], curses.A_BOLD)
 
+        # Trier l'historique par ordre chronologique (plus ancien au plus récent)
+        sorted_history = sorted(self.state.full_history, 
+                               key=lambda s: self.state.subject_timestamps.get(s, 0))
+
         # Construire un affichage en arbre récursif avec caractères ASCII simples
         def build_tree_recursive(node: str, prefix: str = "", is_last: bool = True) -> list[str]:
             # Ajouter le noeud actuel avec son préfixe
@@ -294,8 +312,8 @@ class SimpleTUI:
                 connector = "L-- " if is_last else "+-- "
                 lines = [prefix + connector + node]
             
-            # Trouver tous les enfants de ce noeud
-            children = [s for s in self.state.full_history if self.state.subject_parent.get(s) == node]
+            # Trouver tous les enfants de ce noeud, triés par ordre chronologique
+            children = [s for s in sorted_history if self.state.subject_parent.get(s) == node]
             
             # Traiter chaque enfant
             for i, child in enumerate(children):
@@ -308,8 +326,8 @@ class SimpleTUI:
             
             return lines
 
-        # Trouver toutes les racines (sujets sans parent)
-        roots = [s for s in self.state.full_history if self.state.subject_parent.get(s) is None]
+        # Trouver toutes les racines (sujets sans parent) dans l'ordre chronologique
+        roots = [s for s in sorted_history if self.state.subject_parent.get(s) is None]
         
         tree_lines: list[str] = []
         for root in roots:
@@ -319,12 +337,17 @@ class SimpleTUI:
         # Supprimer toutes les lignes vides
         tree_lines = [line for line in tree_lines if line.strip()]
         
-        # Si pas d'arbre, utiliser la liste simple mais toujours mémoriser
+        # Si pas d'arbre, utiliser la liste simple triée chronologiquement
         if not tree_lines:
-            tree_lines = list(self.state.full_history)
+            tree_lines = list(sorted_history)
         
         # Mémoriser pour la navigation
         self.state.history_tree_lines = tree_lines
+
+        # Synchroniser le curseur d'historique avec le sujet courant hors mode historique
+        if not self.state.history_mode:
+            navigation_list = tree_lines if tree_lines else sorted_history
+            self.state.history_cursor = self.find_subject_index_in_navigation(self.state.current_subject, navigation_list)
 
         visible_items = self.state.history_tree_lines
         max_visible = panel_height - 2
@@ -339,20 +362,16 @@ class SimpleTUI:
             items_slice = visible_items
         for idx, subj in enumerate(items_slice):
             line_no = panel_start_line + 1 + idx
-            # Extraire sujet brut (sans glyphes d'arbre ASCII) pour comparer
-            raw = subj.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
-            is_current = (raw == self.state.current_subject)
-            is_selected = (self.state.history_mode and (self.state.history_scroll + idx) == self.state.history_cursor)
+            # Un seul surlignage: l'élément pointé par history_cursor
+            is_selected = ((self.state.history_scroll + idx) == self.state.history_cursor)
             display_text = subj[:left_panel_width-2].ljust(left_panel_width-2)
             try:
                 if is_selected:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(2))
-                elif is_current:
-                    stdscr.addstr(line_no, 1, display_text, curses.color_pair(7))
                 else:
                     stdscr.addstr(line_no, 1, display_text, curses.color_pair(1))
             except curses.error:
-                attr = curses.A_REVERSE if is_selected else (curses.A_BOLD if is_current else curses.A_NORMAL)
+                attr = curses.A_REVERSE if is_selected else curses.A_NORMAL
                 stdscr.addstr(line_no, 1, display_text, attr)
 
     def _draw_content(self, stdscr, height, screen_width, separator_line, left_panel_width, current_text_copy):
@@ -667,7 +686,8 @@ class SimpleTUI:
 
             full_content = ""
             for chunk in stream_gen:
-                if self.state.stop_streaming:
+                # Vérifier si CE sujet spécifique doit être arrêté
+                if subject not in self.state.generating_subjects:
                     break
                 # Ajouter le chunk, mais afficher sans déclencher de scroll automatique
                 full_content += chunk
@@ -680,7 +700,8 @@ class SimpleTUI:
                         self.state.force_redraw = True
                 time.sleep(0.06)
 
-            if not self.state.stop_streaming:
+            # Sauver le fichier seulement si la génération n'a pas été arrêtée
+            if subject in self.state.generating_subjects:
                 output_path = GENERATED_DIR / f"{subject.lower().replace(' ', '_')}.md"
                 # Écriture robuste: s'assurer que le dossier existe et écrire de façon atomique
                 GENERATED_DIR.mkdir(parents=True, exist_ok=True)
@@ -691,14 +712,22 @@ class SimpleTUI:
             # Sauvegarder le texte pour le sujet généré (pas forcément le sujet courant si l'utilisateur a navigué)
             with self.state.text_lock:
                 self.state.subject_texts[subject] = full_content
-                if subject in self.state.full_history:
-                    self.state.full_history.remove(subject)
-                self.state.full_history.insert(0, subject)
+                # Enregistrer les métadonnées de génération
+                self.state.subject_metadata[subject] = {
+                    'model': self.state.current_model,
+                    'provider': self.state.current_provider or 'auto',
+                    'language': self.state.current_language
+                }
+                # Ne pas réorganiser l'historique, juste mettre à jour le contenu
             self.state.is_generating = False
+            # Retirer ce sujet des générations en cours
+            self.state.generating_subjects.discard(subject)
         except (ValueError, RuntimeError, OSError, ImportError) as e:
             with self.state.text_lock:
                 self.state.current_text = f"Erreur lors de la génération : {str(e)}"
             self.state.is_generating = False
+            # Retirer ce sujet des générations en cours (même en cas d'erreur)
+            self.state.generating_subjects.discard(subject)
 
     def draw_screen(self, stdscr):
         """Dessine l'écran principal."""
@@ -716,7 +745,8 @@ class SimpleTUI:
         stdscr.erase()
         height, width = stdscr.getmaxyx()
 
-        show_history_panel = width >= 50  # Seuil d'affichage
+        # Afficher/masquer via état + seuil min de largeur
+        show_history_panel = self.state.history_visible and (width >= 50)
         left_panel_width = min(35, width // 3) if show_history_panel else 0  # Adaptatif mais plus large
 
         self.init_colors()
@@ -729,20 +759,28 @@ class SimpleTUI:
             "matrix": "📟 Matrix", "pure_black": "🖤 Pure Black", "pure_white": "🤍 Pure White"
         }
         theme_name = theme_map.get(self.state.current_theme, self.state.current_theme.title())
+        
+        # Pour les instructions : utiliser les paramètres ACTUELS (qu'on peut modifier)
         lang_info = self.state.languages[self.state.current_language]
         model_info = self.state.available_models[self.state.current_model]
+        provider_info = self.state.current_provider or 'auto'
         if self.state.history_mode:
-            instructions = "🗂️ History | ↑↓/Tab: Browse | Enter: Open | Esc/h: Close"
+            instructions = "🗂️ History (visible) | ↑↓/Tab/Shift+Tab: Browse | Enter: Open | Esc/h: Hide"
         elif self.state.input_mode:
             instructions = "✏️ Input mode | Type your subject then Enter | Esc: Cancel"
         elif self.state.is_generating and self.state.selection_mode:
-            instructions = f"🔄📝 Generating + Selection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Stop | Tab: Next hist"
+            instructions = f"🔄📝 Generating + Selection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | Tab/Shift+Tab: History"
         elif self.state.is_generating:
-            instructions = f"🔄 Generating | Arrows: Navigate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 's': Stop | Tab: Next hist"
+            instructions = f"🔄 Generating | Arrows: Navigate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | Tab/Shift+Tab: History"
+        elif self.state.generating_subjects and self.state.selection_mode:
+            instructions = f"🔄📝 Background Gen + Selection | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | Esc: Cancel | Tab/Shift+Tab: History"
+        elif self.state.generating_subjects:
+            instructions = f"🔄 Background Generating | Arrows: Navigate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | Tab/Shift+Tab: History"
         elif self.state.selection_mode:
-            instructions = f"📝 Selection mode | Arrows: Expand | Enter: Generate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | Esc: Cancel | Tab: Next hist"
+            instructions = f"📝 Selection mode | Arrows: Expand | Enter: Generate | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | Esc: Cancel | Tab/Shift+Tab: History"
         else:
-            instructions = f"Arrows: Navigate | Enter: Generate | Space: Select | 'r': Regenerate | 'i': Input | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {self.state.current_provider or 'auto'} | 'h': History | Tab: Next hist | 'b': Back | 'q': Quit"
+            hist_label = "Show" if not self.state.history_visible else "Hide"
+            instructions = f"Arrows: Navigate | Enter: Generate | Space: Select | 'r': Regenerate | 'i': Input | 't': {theme_name} | 'l': {lang_info['flag']} | 'm': {model_info['name']} | 'p': {provider_info} | 's': Stop | 'h': {hist_label} History | Tab/Shift+Tab: History | 'b': Back | 'q': Quit"
 
         # Afficher le panneau d'infos (instructions) TOUT EN HAUT
         instructions_line = 0
@@ -807,10 +845,26 @@ class SimpleTUI:
                 current_word = self.state.words[self.state.cursor_word_index][0] if self.state.cursor_word_index < len(self.state.words) else ""
                 status = f"📍 Word {self.state.cursor_word_index + 1}/{len(self.state.words)}: {current_word}"
 
-            theme_indicator = "🌙" if self.state.current_theme == "dark" else "☀️"
-            lang_indicator = self.state.languages[self.state.current_language]["flag"]
-            model_indicator = f"{self.state.available_models[self.state.current_model]['symbol']}{self.state.available_models[self.state.current_model]['name']}"
-            provider_indicator = f"🏷️ {self.state.current_provider}" if self.state.current_provider else "🏷️ auto"
+            # Indicateurs par thème
+            theme_indicators = {
+                "dark": "🌙", "light": "☀️", "ocean": "🌊", 
+                "matrix": "📟", "pure_black": "🖤", "pure_white": "🤍"
+            }
+            theme_indicator = theme_indicators.get(self.state.current_theme, "🎨")
+            # Pour le status : utiliser les métadonnées de la FICHE ACTUELLE (pas les paramètres actuels)
+            current_metadata = self.state.subject_metadata.get(self.state.current_subject, {
+                'language': self.state.current_language,
+                'model': self.state.current_model,
+                'provider': self.state.current_provider or 'auto'
+            })
+            
+            fiche_lang_info = self.state.languages[current_metadata['language']]
+            fiche_model_info = self.state.available_models[current_metadata['model']]
+            fiche_provider_info = current_metadata['provider'] or 'auto'
+            
+            lang_indicator = fiche_lang_info["flag"]
+            model_indicator = f"{fiche_model_info['symbol']}{fiche_model_info['name']}"
+            provider_indicator = f"🏷️ {fiche_provider_info}"
 
             if current_text_copy:
                 total_lines = len(self.state.wrapped_lines)
@@ -849,7 +903,9 @@ class SimpleTUI:
 
         if self.state.history_mode:
             if key in (27, ord("h")):
+                # 'h' en mode historique: cacher le panneau et sortir du mode
                 self.state.history_mode = False
+                self.state.history_visible = False
                 self.state.force_redraw = True
                 return False
             if key == curses.KEY_UP:
@@ -863,10 +919,17 @@ class SimpleTUI:
                     self.state.force_redraw = True
                 return False
             if key == ord('\t'):
-                # Tab cycles forward through tree lines; Shift-Tab backward if supported
+                # Tab cycles forward through tree lines
                 lines = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
                 if lines:
                     self.state.history_cursor = (self.state.history_cursor + 1) % len(lines)
+                    self.state.force_redraw = True
+                return False
+            if key == curses.KEY_BTAB:
+                # Shift-Tab cycles backward through tree lines
+                lines = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                if lines:
+                    self.state.history_cursor = (self.state.history_cursor - 1) % len(lines)
                     self.state.force_redraw = True
                 return False
             if key in (ord("\n"), ord("\r")):
@@ -879,9 +942,8 @@ class SimpleTUI:
                     if not selected_subject:
                         return False
                     if self.state.is_generating:
-                        self.state.stop_streaming = True
-                        if self.state.streaming_thread:
-                            self.state.streaming_thread.join(timeout=1)
+                        # Arrêter la génération du sujet actuel
+                        self.state.generating_subjects.discard(self.state.current_subject)
                         self.state.is_generating = False
                     with self.state.text_lock:
                         self.state.subject_texts[self.state.current_subject] = self.state.current_text
@@ -890,10 +952,14 @@ class SimpleTUI:
                     # Charger le sujet choisi: si cache vide, démarrer génération, en traçant le parent
                     if selected_subject in self.state.subject_texts and self.state.subject_texts[selected_subject]:
                         self.state.current_subject = selected_subject
+                        # Synchroniser le curseur avec le sujet actif
+                        navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                        self.state.history_cursor = self.find_subject_index_in_navigation(selected_subject, navigation_list)
                         with self.state.text_lock:
                             self.state.current_text = self.state.subject_texts.get(selected_subject, "")
                             self.state.force_redraw = True
-                        self.state.is_generating = False
+                        # Vérifier si ce sujet sélectionné est en génération
+                        self.state.is_generating = selected_subject in self.state.generating_subjects
                     else:
                         self.load_subject_streaming(selected_subject, stdscr, parent=self.state.current_subject)
                     return False
@@ -910,25 +976,30 @@ class SimpleTUI:
                     self.state.clicked_words[self.state.current_subject] = []
                 if result not in self.state.clicked_words[self.state.current_subject]:
                     self.state.clicked_words[self.state.current_subject].append(f"[{result}]")  # Crochets pour différencier
-                self.load_subject_streaming(result, stdscr, parent=self.state.current_subject)
+                # Recherche manuelle : introduite à la racine (parent=None)
+                self.load_subject_streaming(result, stdscr, parent=None)
             return False
 
         if key == ord("q"):
             if self.state.is_generating:
-                self.state.stop_streaming = True
-                if self.state.streaming_thread:
-                    self.state.streaming_thread.join(timeout=1)
+                # Arrêter toutes les générations lors de la sortie
+                self.state.generating_subjects.clear()
             return True
-        if key == ord("s") and self.state.is_generating:
-            self.state.stop_streaming = True
-            if self.state.streaming_thread:
-                self.state.streaming_thread.join(timeout=1)
-            self.state.is_generating = False
-            self.state.force_redraw = True
+        elif key == ord("s"):
+            # Stop generation of CURRENT subject only
+            if self.state.is_generating and self.state.current_subject in self.state.generating_subjects:
+                # Retirer seulement le sujet actuel des générations
+                self.state.generating_subjects.discard(self.state.current_subject)
+                self.state.is_generating = False
+                self.state.force_redraw = True
         elif key == ord("r") and not self.state.is_generating:
             self.load_subject_streaming(self.state.current_subject, stdscr)
         elif key == ord("h"):
-            self.state.history_mode = not self.state.history_mode
+            # 'h' bascule la visibilité du panneau, sans naviguer. Si on est en mode historique, l'appui est géré plus haut.
+            self.state.history_visible = not self.state.history_visible
+            # En masquant l'historique, garantir qu'on n'est plus en mode historique
+            if not self.state.history_visible:
+                self.state.history_mode = False
             self.state.force_redraw = True
         elif key == ord("t"):
             self.toggle_theme()
@@ -938,11 +1009,19 @@ class SimpleTUI:
             self.cycle_model()
         elif key == ord("p"):
             self.cycle_provider()
-        elif key == ord("i") and not self.state.is_generating:
+        elif key == ord("i"):
             self.start_input_mode()
         elif key == ord("b") and self.state.history:
             prev_subject = self.state.history.pop()
-            self.load_subject_streaming(prev_subject, stdscr)
+            # Back : charger depuis le cache sans régénérer
+            self.state.current_subject = prev_subject
+            navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+            self.state.history_cursor = self.find_subject_index_in_navigation(prev_subject, navigation_list)
+            with self.state.text_lock:
+                self.state.current_text = self.state.subject_texts.get(prev_subject, "")
+                self.state.force_redraw = True
+            # Vérifier si ce sujet précédent est en génération
+            self.state.is_generating = prev_subject in self.state.generating_subjects
         elif key == curses.KEY_MOUSE:
             try:
                 _, mx, my, _, bstate = curses.getmouse()
@@ -974,17 +1053,68 @@ class SimpleTUI:
                 self.start_selection()
             else:
                 self.clear_selection()
-        # Global Tab: cycle through history without regenerating
+        # Global Tab: cycle through history in visual order (tree order) without regenerating
         elif key == ord('\t'):
-            if self.state.full_history:
-                self.state.history_cursor = (self.state.history_cursor + 1) % len(self.state.full_history)
-                next_subject = self.state.full_history[self.state.history_cursor]
-                # Switch subject and display cached text if available, without triggering generation
-                self.state.current_subject = next_subject
-                with self.state.text_lock:
-                    self.state.current_text = self.state.subject_texts.get(next_subject, "")
-                    self.state.force_redraw = True
-                self.state.is_generating = False
+            # Utiliser l'ordre d'affichage visuel (tree) pour navigation séquentielle
+            navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+            if navigation_list:
+                # Trouver l'index du sujet actuel dans la liste de navigation
+                current_index = self.find_subject_index_in_navigation(self.state.current_subject, navigation_list)
+                
+                # Passer au suivant
+                next_index = (current_index + 1) % len(navigation_list)
+                
+                if self.state.history_tree_lines:
+                    # Extraire le nom du sujet depuis la ligne d'arbre
+                    selected_line = navigation_list[next_index]
+                    next_subject = selected_line.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
+                else:
+                    next_subject = navigation_list[next_index]
+                
+                if next_subject and next_subject in self.state.subject_texts:
+                    # Switch subject and display cached text if available, without triggering generation
+                    self.state.current_subject = next_subject
+                    # Mettre à jour curseur pour refléter le nouveau sujet
+                    navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                    self.state.history_cursor = self.find_subject_index_in_navigation(next_subject, navigation_list)
+                    with self.state.text_lock:
+                        self.state.current_text = self.state.subject_texts.get(next_subject, "")
+                        self.state.force_redraw = True
+                    # Vérifier si ce nouveau sujet est en génération
+                    self.state.is_generating = next_subject in self.state.generating_subjects
+                    # Mettre à jour history_cursor pour cohérence avec le panneau historique
+                    self.state.history_cursor = next_index
+            return False
+        # Global Shift-Tab: cycle backward through history in visual order without regenerating
+        elif key == curses.KEY_BTAB:
+            # Utiliser l'ordre d'affichage visuel (tree) pour navigation séquentielle inverse
+            navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+            if navigation_list:
+                # Trouver l'index du sujet actuel dans la liste de navigation
+                current_index = self.find_subject_index_in_navigation(self.state.current_subject, navigation_list)
+                
+                # Passer au précédent
+                next_index = (current_index - 1) % len(navigation_list)
+                
+                if self.state.history_tree_lines:
+                    # Extraire le nom du sujet depuis la ligne d'arbre
+                    selected_line = navigation_list[next_index]
+                    next_subject = selected_line.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
+                else:
+                    next_subject = navigation_list[next_index]
+                
+                if next_subject and next_subject in self.state.subject_texts:
+                    # Switch subject and display cached text if available, without triggering generation
+                    self.state.current_subject = next_subject
+                    navigation_list = self.state.history_tree_lines if self.state.history_tree_lines else self.state.full_history
+                    self.state.history_cursor = self.find_subject_index_in_navigation(next_subject, navigation_list)
+                    with self.state.text_lock:
+                        self.state.current_text = self.state.subject_texts.get(next_subject, "")
+                        self.state.force_redraw = True
+                    # Vérifier si ce nouveau sujet est en génération
+                    self.state.is_generating = next_subject in self.state.generating_subjects
+                    # Mettre à jour history_cursor pour cohérence avec le panneau historique
+                    self.state.history_cursor = next_index
             return False
         elif key == 27:
             if self.state.selection_mode:
@@ -1256,6 +1386,22 @@ class SimpleTUI:
         _, display_height = self.calculate_content_area(height)
         self.state.scroll_offset = max(0, total_lines - display_height)
 
+    def find_subject_index_in_navigation(self, subject: str, navigation_list: list[str]) -> int:
+        """Trouve l'index d'un sujet dans la liste de navigation (arbre ou historique simple)."""
+        if self.state.history_tree_lines:
+            # Chercher dans l'arbre (comparer les sujets sans préfixes)
+            for i, line in enumerate(navigation_list):
+                clean_subject = line.replace("L-- ", "").replace("+-- ", "").replace("|   ", "").replace("    ", "").replace("  ", "").strip()
+                if clean_subject == subject:
+                    return i
+            return 0  # Fallback
+        else:
+            # Chercher dans l'historique simple
+            try:
+                return navigation_list.index(subject)
+            except ValueError:
+                return 0  # Fallback
+
     def load_subject_streaming(self, subject: str, stdscr, parent: str | None = None):
         # Ne pas interrompre une génération en cours d'un autre sujet
 
@@ -1269,13 +1415,23 @@ class SimpleTUI:
         self.state.subject_texts[self.state.current_subject] = previous_text
 
         if subject not in self.state.full_history:
-            self.state.full_history.insert(0, subject)
+            self.state.full_history.append(subject)  # Ajouter à la fin pour ordre chronologique
+            self.state.subject_timestamps[subject] = time.time()  # Timestamp de création
+            # Ajouter des métadonnées par défaut pour le nouveau sujet
+            self.state.subject_metadata[subject] = {
+                'model': self.state.current_model,
+                'provider': self.state.current_provider or 'auto',
+                'language': self.state.current_language
+            }
         # Enregistrer le parent si fourni
         if parent is not None:
             self.state.subject_parent[subject] = parent
         elif subject not in self.state.subject_parent:
             self.state.subject_parent[subject] = None
-        self.state.history_cursor = 0
+        try:
+            self.state.history_cursor = self.state.full_history.index(subject)
+        except ValueError:
+            self.state.history_cursor = 0
         self.state.current_subject = subject
         with self.state.text_lock:
             # Ne change pas l'écran si on navigue ailleurs; seulement si le sujet affiché == subject
@@ -1285,7 +1441,8 @@ class SimpleTUI:
         self.state.cursor_word_index = 0
         self.state.scroll_offset = 0
         self.state.is_generating = True
-        self.state.stop_streaming = False
+        # Ajouter ce sujet aux générations en cours
+        self.state.generating_subjects.add(subject)
 
         self.draw_screen(stdscr)
         stdscr.refresh()
@@ -1337,9 +1494,8 @@ class SimpleTUI:
                     running = False
 
         if self.state.is_generating:
-            self.state.stop_streaming = True
-            if self.state.streaming_thread:
-                self.state.streaming_thread.join(timeout=2)
+            # Arrêter toutes les générations à la fermeture
+            self.state.generating_subjects.clear()
 
 
 def run_simple_tui(initial_subject: str = "Wikipedia"):

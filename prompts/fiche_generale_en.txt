@@ -10,11 +10,13 @@ Write a concise and informative dictionary definition for the following term: {s
     *   Then, expand with relevant details, historical context, or notable facts.
 
 2.  **ASCII Art (mandatory at the very end):**
-    *   After the definition, without any separating text, you MUST create a high-quality ASCII artwork.
-    *   **Key Requirement:** The art must be a **clear, obvious, and immediately recognizable** representation of the subject.
-    *   For example, if the subject is "Paris", draw the Eiffel Tower. If it's "Lamp", draw a lamp. The art must be figurative, not abstract.
-    *   Be creative and talented to make the result aesthetically pleasing.
+    *   After the definition, insert exactly one blank line, then create the ASCII artwork.
+    *   The artwork must render only the fiche name (the term {sujet}) as readable ASCII block letters (text art). Do not draw objects or scenes.
+    *   Orientation and size: favor width over height; the artwork must be between 10 and 15 lines tall (inclusive). It can be wider than it is tall.
+    *   Maximum width: 70 characters (no line longer than 70 characters).
+    *   Keep it simple and legible; do not be overly creative.
 
 **Expected format example:**
 [Single-block definition of approximately 200 words]
-[High-quality ASCII art representing the subject]
+
+[ASCII art rendering of the term as block letters only]

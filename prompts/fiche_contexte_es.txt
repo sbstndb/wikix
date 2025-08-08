@@ -16,12 +16,13 @@ A partir del texto de referencia proporcionado a continuación, redacta una defi
     *   Luego, amplía con los detalles más relevantes extraídos del contexto.
 
 2.  **Arte ASCII (obligatorio al final de todo):**
-    *   Después de la definición, sin ningún texto de separación, DEBES crear una obra de arte ASCII de alta calidad.
-    *   **Requisito clave:** El arte debe ser una representación **clara, evidente e inmediatamente reconocible** del tema.
-    *   Por ejemplo, si el tema es "París", dibuja la Torre Eiffel. Si es "Lámpara", dibuja una lámpara. El arte debe ser figurativo, no abstracto.
-    *   Límite estricto de altura: como máximo 20 líneas.
-    *   Demuestra creatividad y talento para que el resultado sea estético.
+    *   Después de la definición, inserta exactamente una línea en blanco y luego crea el arte ASCII.
+    *   El arte debe representar únicamente el nombre de la ficha (el término {sujet}) como letras de bloque ASCII legibles (arte de texto). No dibujes objetos ni escenas.
+    *   Orientación y tamaño: favorece el ancho sobre la altura; la obra debe tener entre 10 y 15 líneas de alto (inclusive). Puede ser más ancha que alta.
+    *   Ancho máximo: 70 caracteres (ninguna línea debe superar los 70 caracteres).
+    *   Manténlo simple y legible; no seas excesivamente creativo.
 
 **Ejemplo de formato esperado:**
 [Definición basada en el contexto, en un solo bloque de aproximadamente 200 palabras]
-[Arte ASCII de alta calidad representando el tema]
+
+[Arte ASCII que renderiza el término solo como letras de bloque]
