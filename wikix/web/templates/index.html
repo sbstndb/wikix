@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wikix Web</title>
+    <!-- Cache-buster forces the browser to reload CSS/JS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_buster }}">
+</head>
+
+<body>
+    <!-- Conteneur principal de l'application -->
+    <div id="app-container">
+
+        <!-- 1. Instructions and status bar (top) -->
+        <div id="status-bar">
+            <!-- Les éléments de la barre seront générés par JS -->
+        </div>
+
+        <!-- 2. Header with logo and subject -->
+        <header>
+            <pre id="wikix-logo"></pre>
+            <div id="subject-box-wrapper">
+                <div id="subject-box">
+                    <span id="current-subject"></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 3. Main content (scrollable) -->
+        <main>
+            <pre id="text-display"></pre>
+        </main>
+
+    </div>
+
+    <!-- 4. Floating Panels (over the app) -->
+    <div id="history-panel" class="hidden">
+        <h3>History</h3>
+        <ul id="history-list"></ul>
+    </div>
+    <div id="input-area" class="hidden">
+        <span id="input-prompt"></span>
+        <input type="text" id="subject-input" autofocus>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v={{ cache_buster }}"></script>
+</body>
+
+</html>

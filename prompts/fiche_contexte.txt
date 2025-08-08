@@ -1,0 +1,24 @@
+Rédige un texte encyclopédique de style Wikipédia pour {sujet} (priorité au contexte fourni) en DEUX PARTIES, et ne sors QUE le contenu final.
+
+Règles générales (impératives):
+- Aucune méta‑phrase (« résumé », « voici », etc.), aucun préambule ni conclusion automatiques.
+- Pas d’ASCII, pas de liste à puces, pas d’emojis. Commence directement par la première phrase de la Partie 1.
+
+**Texte de référence (contexte) :**
+---
+{context}
+---
+
+**Instructions de mise en forme et de contenu :**
+
+Partie 1 — 3 lignes EXACTES
+- Écris exactement trois lignes, chacune une phrase complète, synthétisant l’essentiel du contexte.
+
+Partie 2 — Article concis style Wikipédia
+- Article structuré avec titres Markdown « ## » (sections réelles), 3 à 4 sections basées sur le contexte.
+- Chaque section: un seul paragraphe court (2 à 3 phrases), style neutre et informatif.
+- Intègre des faits/dates/chiffres du contexte quand possible. Aucune liste à puces, aucune auto‑référence.
+
+3)  **Art ASCII (impératif à la toute fin)**
+    - Une ligne vide après la fiche complète, puis l’ASCII art du terme {sujet} en lettres de blocs.
+    - 10 à 15 lignes de haut, largeur ≤ 70, simple et lisible.

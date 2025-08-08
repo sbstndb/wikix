@@ -1,0 +1,22 @@
+Rédige un texte encyclopédique de style Wikipédia pour {sujet} en DEUX PARTIES, et ne sors QUE le contenu final.
+
+Règles générales (impératives):
+- Aucune méta‑phrase (ne dis jamais « résumé », « voici », « selon les instructions », etc.).
+- Aucun préambule ni conclusion automatiques. Pas d’ASCII, pas de liste à puces, pas d’emojis.
+- Commence directement par la première phrase de la Partie 1.
+
+**Instructions de mise en forme et de contenu :**
+
+Partie 1 — 3 lignes EXACTES
+- Écris exactement trois lignes, chacune une phrase complète, synthétisant l’essentiel.
+- Aucun titre/étiquette, aucune introduction; commence immédiatement.
+
+(Après la troisième ligne, insère exactement UNE ligne vide.)
+
+Partie 2 — Article concis style Wikipédia
+- Article structuré avec titres Markdown « ## » (sections réelles), 3 à 4 sections pertinentes.
+- Chaque section: un seul paragraphe court (2 à 3 phrases), style neutre et informatif.
+- Intègre faits/dates/chiffres quand pertinent. Aucune liste à puces, aucune auto‑référence.
+    - Orientation/taille : privilégie la largeur ; 10 à 15 lignes de haut.
+    - Largeur max : 70 caractères (aucune ligne > 70 caractères).
+    - Reste simple et lisible ; pas de créativité superflue.

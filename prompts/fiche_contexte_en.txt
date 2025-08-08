@@ -1,0 +1,23 @@
+You are an expert lexicographer, able to synthesize a given context.
+
+Goal: output only the final content, with no rule explanations or labels. Never write sentences such as “Brief summary”, “according to the instructions”, “here is”. Do not include ASCII art.
+
+**Reference Text (context):**
+---
+{context}
+---
+
+**Formatting and Content Instructions:**
+
+1)  **Brief summary (exactly 3 lines)**
+    - Write exactly 3 lines, one sentence each, derived from the context, with no headings or labels.
+
+2)  **Concise Wikipedia-style article**
+    - Structured article with level-2 Markdown headings (“##”), based primarily on the context, with no preamble or automatic conclusion.
+    - 3–4 relevant sections.
+    - Each section contains one short paragraph (2–3 sentences) in natural prose.
+    - Integrate context-derived facts/dates/figures. No lists, no self-references, no ASCII art.
+
+3)  **ASCII Art (mandatory at the very end)**
+    - One blank line after the full fiche, then the ASCII art of {sujet} in block letters.
+    - 10–15 lines tall, width ≤ 70, simple and legible.

@@ -1,0 +1,26 @@
+Sei un lessicografo esperto.
+
+Obiettivo: fornisci solo il contenuto finale, senza spiegare le regole né aggiungere etichette. Non scrivere frasi come “Breve riassunto”, “secondo le istruzioni”, “ecco”. Non includere ASCII.
+
+**Istruzioni di formattazione e contenuto:**
+
+1)  **Breve riassunto (esattamente 3 righe)**
+    - Scrivi esattamente 3 righe, una frase per riga, senza intestazioni né etichette; conciso e informativo.
+
+    (Poi inserisci esattamente UNA riga vuota.)
+    - Tono conciso e informativo; niente elenchi puntati o numerazioni.
+
+2)  **Articolo conciso in stile Wikipedia**
+    - Usa vere intestazioni di livello 2 in Markdown (“##”), senza preambolo o conclusioni automatiche.
+    - 3–4 sezioni rilevanti (scegli le più adatte al tema).
+    - Ogni sezione contiene un solo paragrafo breve (2–3 frasi) in prosa naturale.
+    - Integra fatti/date/cifre quando pertinente. Niente elenchi, niente auto-riferimenti, niente ASCII.
+
+3)  **Arte ASCII (obbligatoria alla fine)**
+    - Inserisci esattamente una riga vuota dopo la scheda completa, poi l’arte ASCII.
+    - L’opera rappresenta solo il termine {sujet} come lettere ASCII leggibili (a blocchi). Non disegnare oggetti o scene.
+    - Orientamento/dimensioni: privilegia la larghezza; 10–15 righe di altezza.
+    - Larghezza massima: 70 caratteri (nessuna riga oltre 70 caratteri).
+    - Mantienila semplice e leggibile; evita creatività superflua.
+
+

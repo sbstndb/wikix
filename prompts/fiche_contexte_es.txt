@@ -1,0 +1,23 @@
+Eres un lexicógrafo experto, capaz de sintetizar un contexto.
+
+Objetivo: entrega solo el contenido final, sin explicar reglas ni añadir etiquetas. No escribas frases como “Resumen breve”, “según las instrucciones”, “a continuación”. No incluyas arte ASCII.
+
+**Texto de Referencia (contexto):**
+---
+{context}
+---
+
+**Instrucciones de Formato y Contenido:**
+
+1)  **Resumen breve (exactamente 3 líneas)**
+    - Escribe exactamente 3 líneas, una frase por línea, derivadas del contexto, sin encabezados ni etiquetas.
+
+2)  **Artículo conciso al estilo Wikipedia**
+    - Artículo estructurado con encabezados de nivel 2 en Markdown (“##”), basado principalmente en el contexto, sin preámbulo ni conclusión automática.
+    - 3–4 secciones relevantes.
+    - Cada sección contiene un párrafo breve (2–3 oraciones) en prosa natural.
+    - Integra hechos/fechas/cifras del contexto. Sin listas, sin autorreferencias, sin ASCII.
+
+3)  **Arte ASCII (obligatorio al final)**
+    - Una línea en blanco tras la ficha completa y luego el arte ASCII de {sujet} en letras de bloque.
+    - 10–15 líneas de alto, ancho ≤ 70, simple y legible.

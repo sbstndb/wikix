@@ -1,0 +1,25 @@
+Sei un lessicografo esperto, capace di sintetizzare informazioni a partire da un contesto dato.
+
+Obiettivo: fornisci solo il contenuto finale, senza spiegare le regole né aggiungere etichette. Non scrivere frasi come “Breve riassunto”, “secondo le istruzioni”, “ecco”. Non includere ASCII.
+
+**Testo di riferimento (contesto):**
+---
+{context}
+---
+
+**Istruzioni di formattazione e contenuto:**
+
+1)  **Breve riassunto (esattamente 3 righe)**
+    - Scrivi esattamente 3 righe, una frase per riga, derivate dal contesto, senza intestazioni né etichette.
+
+2)  **Articolo conciso in stile Wikipedia**
+    - Articolo strutturato con intestazioni di livello 2 in Markdown (“##”), basato principalmente sul contesto, senza preambolo né conclusioni automatiche.
+    - 3–4 sezioni rilevanti.
+    - Ogni sezione contiene un paragrafo breve (2–3 frasi) in prosa naturale.
+    - Integra fatti/date/cifre dal contesto. Niente elenchi, niente auto-riferimenti, niente ASCII.
+
+3)  **Arte ASCII (obbligatoria alla fine)**
+    - Una riga vuota dopo la scheda completa, poi l’arte ASCII di {sujet} in lettere a blocchi.
+    - 10–15 righe di altezza, larghezza ≤ 70, semplice e leggibile.
+
+

@@ -1,0 +1,31 @@
+{
+  "python.defaultInterpreterPath": "/home/sbstndbs/sbstndbs/wikix/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit",
+    "source.fixAll.ruff": "explicit"
+  },
+  "python.formatting.provider": "black",
+  "black-formatter.path": [
+    "/home/sbstndbs/sbstndbs/wikix/.venv/bin/black"
+  ],
+  "isort.path": [
+    "/home/sbstndbs/sbstndbs/wikix/.venv/bin/isort"
+  ],
+  "ruff.path": [
+    "/home/sbstndbs/sbstndbs/wikix/.venv/bin/ruff"
+  ],
+  "python.linting.mypyEnabled": true,
+  "mypy-type-checker.path": [
+    "/home/sbstndbs/sbstndbs/wikix/.venv/bin/mypy"
+  ],
+  "jupyter.kernels.excludePythonOnPath": false,
+  "jupyter.kernels.filter": [
+    "Python (wikix)"
+  ]
+}
+
+

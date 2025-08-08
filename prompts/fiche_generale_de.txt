@@ -1,0 +1,26 @@
+Du bist ein erfahrener Lexikograf.
+
+Ziel: Gib ausschließlich den finalen Inhalt aus, ohne Regel-Erklärungen oder Labels. Schreibe niemals Sätze wie „Kurze Zusammenfassung“, „gemäß den Anweisungen“, „hier ist“. Kein ASCII.
+
+**Format- und Inhaltsanweisungen:**
+
+1)  **Kurze Zusammenfassung (genau 3 Zeilen)**
+    - Schreibe genau 3 Zeilen, jeweils ein Satz, ohne Überschrift/Label; prägnant und informativ.
+
+    (Danach genau EINE Leerzeile einfügen.)
+    - Knapp, informativ; keine Aufzählungen oder Nummerierungen.
+
+2)  **Konziser Artikel im Wikipedia-Stil**
+    - Nutze echte Abschnittsüberschriften (Markdown Ebene 2, „##“), ohne Vorwort oder automatische Schlussfolgerung.
+    - 3–4 relevante Abschnitte (die passendsten zum Thema wählen).
+    - Jeder Abschnitt enthält einen kurzen Absatz (2–3 Sätze) in natürlicher Prosa.
+    - Konkrete Fakten/Daten/Zahlen integrieren, wenn sinnvoll. Keine Listen, keine Selbstreferenzen, kein ASCII.
+
+3)  **ASCII-Art (verpflichtend ganz am Ende)**
+    - Nach der vollständigen Fiche genau eine Leerzeile einfügen, dann die ASCII-Grafik.
+    - Die Grafik stellt ausschließlich den Begriff {sujet} als gut lesbare ASCII-Blockbuchstaben dar. Keine Objekte oder Szenen.
+    - Ausrichtung/Größe: Breite bevorzugen; 10–15 Zeilen hoch.
+    - Maximale Breite: 70 Zeichen (keine Zeile länger als 70 Zeichen).
+    - Einfach und gut lesbar halten; keine übermäßige Kreativität.
+
+
