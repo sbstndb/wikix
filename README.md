@@ -1,6 +1,6 @@
 # Wikix
 
-![Wikix](prompts/wikix.png)
+![Wikix](assets/wikix.png)
 
 Wikix is a small toolkit to generate short encyclopedic entries ("fiches") from a given subject using LLM providers. It includes:
 
